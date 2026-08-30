@@ -1,0 +1,103 @@
+name: Flutter Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'URL Website'
+        required: false
+        type: string
+        default: ''
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Accept Android Licenses
+        run: |
+          yes | sdkmanager --licenses || true
+          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0" || true
+
+      - name: Build APK
+        run: |
+          URL="${{ github.event.inputs.url }}"
+
+          flutter create --org com.example --project-name myapp myapp
+          cd myapp
+
+          if [ -n "$URL" ]; then
+            flutter pub add webview_flutter
+            cat > lib/main.dart << 'EOF'
+import 'package:flutter/material.dart';
+import 'package:webview_flutter/webview_flutter.dart';
+
+void main() {
+  runApp(MyApp());
+}
+
+class MyApp extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Web App',
+      debugShowCheckedModeBanner: false,
+      home: WebViewApp(),
+    );
+  }
+}
+
+class WebViewApp extends StatefulWidget {
+  @override
+  _WebViewAppState createState() => _WebViewAppState();
+}
+
+class _WebViewAppState extends State<WebViewApp> {
+  late final WebViewController controller;
+
+  @override
+  void initState() {
+    super.initState();
+    final url = '${{ github.event.inputs.url }}';
+    controller = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..loadRequest(Uri.parse(url.isEmpty ? 'https://example.com' : url));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: SafeArea(
+        child: WebViewWidget(controller: controller),
+      ),
+    );
+  }
+}
+EOF
+          fi
+
+          flutter build apk --release
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app
+          path: myapp/build/app/outputs/flutter-apk/app-release.apk
