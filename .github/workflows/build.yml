@@ -3,8 +3,33 @@ name: Flutter Build
 on:
   workflow_dispatch:
     inputs:
+      build_type:
+        description: 'Tipe Build'
+        required: false
+        type: string
+        default: 'generic'
+      app_name:
+        description: 'Nama Aplikasi'
+        required: false
+        type: string
+        default: 'MyApp'
       url:
-        description: 'URL'
+        description: 'URL Website'
+        required: false
+        type: string
+        default: ''
+      icon_url:
+        description: 'URL Icon'
+        required: false
+        type: string
+        default: ''
+      package_name:
+        description: 'Package Name'
+        required: false
+        type: string
+        default: 'com.example.app'
+      source_zip_url:
+        description: 'URL ZIP Sumber'
         required: false
         type: string
         default: ''
@@ -36,8 +61,72 @@ jobs:
 
       - name: Build APK
         run: |
+          APP_NAME="${{ github.event.inputs.app_name }}"
+          URL="${{ github.event.inputs.url }}"
+          ICON_URL="${{ github.event.inputs.icon_url }}"
+          PKG_NAME="${{ github.event.inputs.package_name }}"
+          SOURCE_ZIP="${{ github.event.inputs.source_zip_url }}"
+
+          echo "APP_NAME=${APP_NAME}" >> $GITHUB_ENV
+          echo "PKG_NAME=${PKG_NAME}" >> $GITHUB_ENV
+
           flutter create --org com.example --project-name myapp myapp
           cd myapp
+
+          if [ -n "$URL" ]; then
+            flutter pub add webview_flutter
+            cat > lib/main.dart << 'EOF'
+import 'package:flutter/material.dart';
+import 'package:webview_flutter/webview_flutter.dart';
+
+void main() {
+  runApp(MyApp());
+}
+
+class MyApp extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Web App',
+      debugShowCheckedModeBanner: false,
+      home: WebViewApp(),
+    );
+  }
+}
+
+class WebViewApp extends StatefulWidget {
+  @override
+  _WebViewAppState createState() => _WebViewAppState();
+}
+
+class _WebViewAppState extends State<WebViewApp> {
+  late final WebViewController controller;
+
+  @override
+  void initState() {
+    super.initState();
+    final url = '${{ github.event.inputs.url }}';
+    controller = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..loadRequest(Uri.parse(url.isEmpty ? 'https://example.com' : url));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: SafeArea(
+        child: WebViewWidget(controller: controller),
+      ),
+    );
+  }
+}
+EOF
+          fi
+
+          if [ -n "$PKG_NAME" ]; then
+            sed -i "s/applicationId .*/applicationId \"${PKG_NAME}\"/" android/app/build.gradle
+          fi
+
           flutter build apk --release
 
       - name: Upload APK
