@@ -3,8 +3,35 @@ name: Flutter Build
 on:
   workflow_dispatch:
     inputs:
+      build_type:
+        description: 'Tipe Build'
+        required: true
+        type: choice
+        options:
+          - web2apk
+          - generic
+      app_name:
+        description: 'Nama Aplikasi'
+        required: true
+        type: string
+        default: 'MyApp'
       url:
         description: 'URL Website'
+        required: false
+        type: string
+        default: ''
+      icon_url:
+        description: 'URL Icon'
+        required: false
+        type: string
+        default: ''
+      package_name:
+        description: 'Package Name'
+        required: false
+        type: string
+        default: 'com.example.app'
+      source_zip_url:
+        description: 'URL ZIP Sumber'
         required: false
         type: string
         default: ''
@@ -15,8 +42,7 @@ jobs:
     timeout-minutes: 20
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -39,10 +65,23 @@ jobs:
 
       - name: Build APK
         run: |
+          BUILD_TYPE="${{ github.event.inputs.build_type }}"
+          APP_NAME="${{ github.event.inputs.app_name }}"
           URL="${{ github.event.inputs.url }}"
+          ICON_URL="${{ github.event.inputs.icon_url }}"
+          PKG_NAME="${{ github.event.inputs.package_name }}"
+          SOURCE_ZIP="${{ github.event.inputs.source_zip_url }}"
+
+          echo "BUILD_TYPE=${BUILD_TYPE}" >> $GITHUB_ENV
+          echo "APP_NAME=${APP_NAME}" >> $GITHUB_ENV
+          echo "PKG_NAME=${PKG_NAME}" >> $GITHUB_ENV
 
           flutter create --org com.example --project-name myapp myapp
           cd myapp
+
+          if [ -n "$SOURCE_ZIP" ]; then
+            echo "Source ZIP: $SOURCE_ZIP"
+          fi
 
           if [ -n "$URL" ]; then
             flutter pub add webview_flutter
@@ -92,6 +131,12 @@ class _WebViewAppState extends State<WebViewApp> {
   }
 }
 EOF
+          fi
+
+          if [ -n "$PKG_NAME" ]; then
+            if [ -f "android/app/build.gradle" ]; then
+              sed -i "s/applicationId .*/applicationId \"$PKG_NAME\"/" android/app/build.gradle
+            fi
           fi
 
           flutter build apk --release
