@@ -74,30 +74,35 @@ jobs:
         working-directory: project
         run: flutter pub get
 
-      # ===== PERBAIKAN: Upgrade Gradle dengan delimiter | =====
+      # ===== PERBAIKAN: Upgrade Gradle ke versi valid =====
       - name: Upgrade Gradle wrapper
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
         working-directory: project
         run: |
+          # Coba upgrade wrapper ke versi 8.10.2 (valid)
           if [ -f "android/gradle/wrapper/gradle-wrapper.properties" ]; then
-            echo "📦 Mengupgrade Gradle ke versi 8.14.0..."
-            sed -i 's|gradle-[0-9.]*-all.zip|gradle-8.14.0-all.zip|g' android/gradle/wrapper/gradle-wrapper.properties
-            sed -i 's|distributionUrl=.*|distributionUrl=https\://services.gradle.org/distributions/gradle-8.14.0-all.zip|g' android/gradle/wrapper/gradle-wrapper.properties
+            echo "📦 Mengupgrade Gradle ke versi 8.10.2..."
+            sed -i 's|distributionUrl=.*|distributionUrl=https\://services.gradle.org/distributions/gradle-8.10.2-all.zip|g' android/gradle/wrapper/gradle-wrapper.properties
             cat android/gradle/wrapper/gradle-wrapper.properties
           else
             echo "⚠️ File gradle-wrapper.properties tidak ditemukan, melewati upgrade..."
           fi
 
+          # Update build.gradle
           if [ -f "android/build.gradle" ]; then
             echo "📦 Mengupdate build.gradle..."
-            sed -i 's|com.android.tools.build:gradle:[0-9.]*|com.android.tools.build:gradle:8.7.2|g' android/build.gradle
+            sed -i 's|com.android.tools.build:gradle:[0-9.]*|com.android.tools.build:gradle:8.5.2|g' android/build.gradle
           fi
 
-          if [ -f "android/app/build.gradle" ]; then
-            echo "📦 Mengupdate app/build.gradle..."
-            grep -q "namespace" android/app/build.gradle || sed -i '/android {/a\    namespace "com.example.app"' android/app/build.gradle
+          # Fallback: install gradle global jika wrapper gagal
+          if [ -f "android/gradle/wrapper/gradle-wrapper.properties" ] && ! grep -q "gradle-8.10.2" android/gradle/wrapper/gradle-wrapper.properties; then
+            echo "⚠️ Gagal mengubah wrapper, menginstall gradle global..."
+            sudo apt-get update
+            sudo apt-get install -y gradle
+            gradle --version
           fi
 
+      # ===== Build APK dengan skip dependency validation =====
       - name: Build APK (Debug)
         if: github.event.inputs.build_type == 'debug' && github.event.inputs.source_zip_url != ''
         working-directory: project
