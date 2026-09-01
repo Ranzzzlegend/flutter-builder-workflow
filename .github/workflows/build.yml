@@ -44,7 +44,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ========== SETUP FLUTTER ==========
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -54,7 +53,6 @@ jobs:
       - name: Flutter doctor
         run: flutter doctor -v
 
-      # ========== DEPENDENSI UNTUK WEB2APK ==========
       - name: Install dependencies (web2apk)
         if: github.event.inputs.build_type == 'web2apk'
         run: |
@@ -64,7 +62,6 @@ jobs:
           unzip web2apk.zip -d web2apk
           chmod +x web2apk/web2apk
 
-      # ========== FLUTTER BUILD (source_zip_url) ==========
       - name: Download Flutter project ZIP
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
         run: |
@@ -77,22 +74,55 @@ jobs:
         working-directory: project
         run: flutter pub get
 
+      # ===== PERBAIKAN: Upgrade Gradle =====
+      - name: Upgrade Gradle wrapper
+        if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
+        working-directory: project
+        run: |
+          # Cek apakah ada file gradle-wrapper.properties
+          if [ -f "android/gradle/wrapper/gradle-wrapper.properties" ]; then
+            echo "📦 Mengupgrade Gradle ke versi 8.14.0..."
+            sed -i 's/gradle-[0-9.]*-all.zip/gradle-8.14.0-all.zip/g' android/gradle/wrapper/gradle-wrapper.properties
+            sed -i 's/distributionUrl=.*/distributionUrl=https\\://services.gradle.org/distributions/gradle-8.14.0-all.zip/g' android/gradle/wrapper/gradle-wrapper.properties
+            cat android/gradle/wrapper/gradle-wrapper.properties
+          else
+            echo "⚠️ File gradle-wrapper.properties tidak ditemukan, melewati upgrade..."
+          fi
+
+          # Upgrade gradle plugin di build.gradle
+          if [ -f "android/build.gradle" ]; then
+            echo "📦 Mengupdate build.gradle..."
+            sed -i 's/com.android.tools.build:gradle:[0-9.]*/com.android.tools.build:gradle:8.7.2/g' android/build.gradle
+          fi
+
+          if [ -f "android/app/build.gradle" ]; then
+            echo "📦 Mengupdate app/build.gradle..."
+            # Tambahkan namespace jika diperlukan
+            grep -q "namespace" android/app/build.gradle || sed -i '/android {/a\    namespace "com.example.app"' android/app/build.gradle
+          fi
+
+      # ===== PERBAIKAN: Build dengan skip validation =====
       - name: Build APK (Debug)
         if: github.event.inputs.build_type == 'debug' && github.event.inputs.source_zip_url != ''
         working-directory: project
-        run: flutter build apk --debug --target-platform android-arm,android-arm64
+        run: |
+          flutter build apk --debug --target-platform android-arm,android-arm64 --android-skip-build-dependency-validation || \
+          flutter build apk --debug --target-platform android-arm,android-arm64
 
       - name: Build APK (Release)
         if: github.event.inputs.build_type == 'release' && github.event.inputs.source_zip_url != ''
         working-directory: project
-        run: flutter build apk --release --target-platform android-arm,android-arm64
+        run: |
+          flutter build apk --release --target-platform android-arm,android-arm64 --android-skip-build-dependency-validation || \
+          flutter build apk --release --target-platform android-arm,android-arm64
 
       - name: Build APK (Generic)
         if: github.event.inputs.build_type == 'generic' && github.event.inputs.source_zip_url != ''
         working-directory: project
-        run: flutter build apk --release --target-platform android-arm,android-arm64
+        run: |
+          flutter build apk --release --target-platform android-arm,android-arm64 --android-skip-build-dependency-validation || \
+          flutter build apk --release --target-platform android-arm,android-arm64
 
-      # ========== WEB2APK BUILD ==========
       - name: Web2APK Build
         if: github.event.inputs.build_type == 'web2apk'
         run: |
@@ -104,7 +134,6 @@ jobs:
             --output webapp.apk
         continue-on-error: true
 
-      # ========== UPLOAD ARTIFACT ==========
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
@@ -114,6 +143,5 @@ jobs:
             webapp.apk
           retention-days: 7
 
-      # ========== CLEANUP (opsional) ==========
       - name: Cleanup
         run: rm -rf project web2apk webapp.apk || true
