@@ -74,45 +74,44 @@ jobs:
         working-directory: project
         run: flutter pub get
 
-      # ===== PERBAIKAN: Upgrade Gradle ke 8.12.0 =====
+      # ===== PERBAIKAN: Upgrade Gradle ke 8.11.1 (valid) =====
       - name: Upgrade Gradle wrapper & AGP
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
         working-directory: project
         run: |
-          # Upgrade gradle wrapper ke 8.12.0
+          # Gunakan Gradle 8.11.1 yang tersedia
           if [ -f "android/gradle/wrapper/gradle-wrapper.properties" ]; then
-            echo "📦 Mengupgrade Gradle ke versi 8.12.0..."
-            sed -i 's|distributionUrl=.*|distributionUrl=https\://services.gradle.org/distributions/gradle-8.12.0-all.zip|g' android/gradle/wrapper/gradle-wrapper.properties
+            echo "📦 Mengupgrade Gradle ke versi 8.11.1..."
+            sed -i 's|distributionUrl=.*|distributionUrl=https\://services.gradle.org/distributions/gradle-8.11.1-all.zip|g' android/gradle/wrapper/gradle-wrapper.properties
             cat android/gradle/wrapper/gradle-wrapper.properties
           else
             echo "⚠️ File gradle-wrapper.properties tidak ditemukan, melewati upgrade..."
           fi
 
-          # Upgrade Android Gradle Plugin (AGP) ke 8.5.2
+          # Upgrade AGP ke 8.5.2
           if [ -f "android/build.gradle" ]; then
             echo "📦 Mengupdate AGP ke 8.5.2..."
             sed -i 's|com.android.tools.build:gradle:[0-9.]*|com.android.tools.build:gradle:8.5.2|g' android/build.gradle
-            # Jika menggunakan build.gradle.kts
-            if [ -f "android/build.gradle.kts" ]; then
-              sed -i 's|com.android.tools.build:gradle:[0-9.]*|com.android.tools.build:gradle:8.5.2|g' android/build.gradle.kts
-            fi
+          fi
+          if [ -f "android/build.gradle.kts" ]; then
+            echo "📦 Mengupdate AGP ke 8.5.2 (kts)..."
+            sed -i 's|com.android.tools.build:gradle:[0-9.]*|com.android.tools.build:gradle:8.5.2|g' android/build.gradle.kts
           fi
 
           # Tambahkan namespace jika diperlukan
           if [ -f "android/app/build.gradle" ]; then
-            echo "📦 Memastikan namespace ada di app/build.gradle..."
             grep -q "namespace" android/app/build.gradle || sed -i '/android {/a\    namespace "com.example.app"' android/app/build.gradle
           fi
           if [ -f "android/app/build.gradle.kts" ]; then
-            echo "📦 Memastikan namespace ada di app/build.gradle.kts..."
             grep -q "namespace" android/app/build.gradle.kts || sed -i '/android {/a\    namespace("com.example.app")' android/app/build.gradle.kts
           fi
 
-          # Verifikasi versi
-          echo "✅ Gradle wrapper version:"
-          cat android/gradle/wrapper/gradle-wrapper.properties | grep distributionUrl
+          # Beri izin eksekusi pada gradlew
+          if [ -f "android/gradlew" ]; then
+            chmod +x android/gradlew
+          fi
 
-      # ===== Build dengan skip validation =====
+      # ===== Build dengan fallback gradle global =====
       - name: Build APK (Debug)
         if: github.event.inputs.build_type == 'debug' && github.event.inputs.source_zip_url != ''
         working-directory: project
@@ -125,14 +124,21 @@ jobs:
         working-directory: project
         run: |
           flutter build apk --release --target-platform android-arm,android-arm64 --android-skip-build-dependency-validation || \
-          flutter build apk --release --target-platform android-arm,android-arm64
+          (echo "⚠️ Gagal dengan wrapper, mencoba gradle global..." && \
+           sudo apt-get update && sudo apt-get install -y gradle && \
+           export GRADLE_HOME=/usr/share/gradle && \
+           export PATH=$GRADLE_HOME/bin:$PATH && \
+           flutter build apk --release --target-platform android-arm,android-arm64 --android-skip-build-dependency-validation)
 
       - name: Build APK (Generic)
         if: github.event.inputs.build_type == 'generic' && github.event.inputs.source_zip_url != ''
         working-directory: project
         run: |
           flutter build apk --release --target-platform android-arm,android-arm64 --android-skip-build-dependency-validation || \
-          flutter build apk --release --target-platform android-arm,android-arm64
+          (sudo apt-get update && sudo apt-get install -y gradle && \
+           export GRADLE_HOME=/usr/share/gradle && \
+           export PATH=$GRADLE_HOME/bin:$PATH && \
+           flutter build apk --release --target-platform android-arm,android-arm64 --android-skip-build-dependency-validation)
 
       - name: Web2APK Build
         if: github.event.inputs.build_type == 'web2apk'
