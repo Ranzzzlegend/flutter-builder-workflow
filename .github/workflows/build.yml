@@ -74,12 +74,29 @@ jobs:
         working-directory: project
         run: flutter pub get
 
-      # ===== PERBAIKAN: Upgrade Gradle ke 8.11.1 (valid) =====
+      # ===== PERBAIKAN: Upgrade dependencies otomatis =====
+      - name: Upgrade dependencies (fix compatibility issues)
+        if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
+        working-directory: project
+        run: |
+          echo "📦 Mengecek dan mengupgrade dependencies yang bermasalah..."
+          
+          # Cek apakah ada font_awesome_flutter di pubspec.yaml
+          if grep -q "font_awesome_flutter" pubspec.yaml; then
+            echo "🔧 Mengupgrade font_awesome_flutter ke versi terbaru..."
+            sed -i 's|font_awesome_flutter: [^,]*|font_awesome_flutter: ^10.10.0|g' pubspec.yaml
+            sed -i 's|font_awesome_flutter:.*|font_awesome_flutter: ^10.10.0|g' pubspec.yaml
+          fi
+          
+          # Upgrade semua dependencies
+          flutter pub upgrade
+          flutter pub get
+
+      # ===== PERBAIKAN: Upgrade Gradle ke 8.11.1 =====
       - name: Upgrade Gradle wrapper & AGP
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
         working-directory: project
         run: |
-          # Gunakan Gradle 8.11.1 yang tersedia
           if [ -f "android/gradle/wrapper/gradle-wrapper.properties" ]; then
             echo "📦 Mengupgrade Gradle ke versi 8.11.1..."
             sed -i 's|distributionUrl=.*|distributionUrl=https\://services.gradle.org/distributions/gradle-8.11.1-all.zip|g' android/gradle/wrapper/gradle-wrapper.properties
@@ -88,7 +105,6 @@ jobs:
             echo "⚠️ File gradle-wrapper.properties tidak ditemukan, melewati upgrade..."
           fi
 
-          # Upgrade AGP ke 8.5.2
           if [ -f "android/build.gradle" ]; then
             echo "📦 Mengupdate AGP ke 8.5.2..."
             sed -i 's|com.android.tools.build:gradle:[0-9.]*|com.android.tools.build:gradle:8.5.2|g' android/build.gradle
@@ -98,7 +114,6 @@ jobs:
             sed -i 's|com.android.tools.build:gradle:[0-9.]*|com.android.tools.build:gradle:8.5.2|g' android/build.gradle.kts
           fi
 
-          # Tambahkan namespace jika diperlukan
           if [ -f "android/app/build.gradle" ]; then
             grep -q "namespace" android/app/build.gradle || sed -i '/android {/a\    namespace "com.example.app"' android/app/build.gradle
           fi
@@ -106,28 +121,31 @@ jobs:
             grep -q "namespace" android/app/build.gradle.kts || sed -i '/android {/a\    namespace("com.example.app")' android/app/build.gradle.kts
           fi
 
-          # Beri izin eksekusi pada gradlew
           if [ -f "android/gradlew" ]; then
             chmod +x android/gradlew
           fi
 
-      # ===== Build dengan fallback gradle global =====
       - name: Build APK (Debug)
         if: github.event.inputs.build_type == 'debug' && github.event.inputs.source_zip_url != ''
         working-directory: project
         run: |
-          flutter build apk --debug --target-platform android-arm,android-arm64 --android-skip-build-dependency-validation || \
-          flutter build apk --debug --target-platform android-arm,android-arm64
+          flutter build apk --debug --target-platform android-arm,android-arm64 --android-skip-build-dependency-validation
 
       - name: Build APK (Release)
         if: github.event.inputs.build_type == 'release' && github.event.inputs.source_zip_url != ''
         working-directory: project
         run: |
+          # Coba build, jika gagal karena font_awesome_flutter, coba solusi alternatif
           flutter build apk --release --target-platform android-arm,android-arm64 --android-skip-build-dependency-validation || \
-          (echo "⚠️ Gagal dengan wrapper, mencoba gradle global..." && \
-           sudo apt-get update && sudo apt-get install -y gradle && \
-           export GRADLE_HOME=/usr/share/gradle && \
-           export PATH=$GRADLE_HOME/bin:$PATH && \
+          (echo "⚠️ Build gagal, mencoba dengan dependency override..." && \
+           echo "📦 Menambahkan dependency override untuk font_awesome_flutter..." && \
+           echo "dependency_overrides:" >> pubspec.yaml && \
+           echo "  font_awesome_flutter: ^10.10.0" >> pubspec.yaml && \
+           flutter pub get && \
+           flutter build apk --release --target-platform android-arm,android-arm64 --android-skip-build-dependency-validation) || \
+          (echo "⚠️ Gagal dengan override, mencoba downgrade Flutter..." && \
+           flutter downgrade 3.22.0 && \
+           flutter pub get && \
            flutter build apk --release --target-platform android-arm,android-arm64 --android-skip-build-dependency-validation)
 
       - name: Build APK (Generic)
@@ -135,9 +153,10 @@ jobs:
         working-directory: project
         run: |
           flutter build apk --release --target-platform android-arm,android-arm64 --android-skip-build-dependency-validation || \
-          (sudo apt-get update && sudo apt-get install -y gradle && \
-           export GRADLE_HOME=/usr/share/gradle && \
-           export PATH=$GRADLE_HOME/bin:$PATH && \
+          (echo "📦 Menambahkan dependency override..." && \
+           echo "dependency_overrides:" >> pubspec.yaml && \
+           echo "  font_awesome_flutter: ^10.10.0" >> pubspec.yaml && \
+           flutter pub get && \
            flutter build apk --release --target-platform android-arm,android-arm64 --android-skip-build-dependency-validation)
 
       - name: Web2APK Build
