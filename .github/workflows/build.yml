@@ -44,10 +44,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # ===== PERBAIKAN: Gunakan Flutter versi 3.22.0 (lebih stabil) =====
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
+          version: 3.22.0
           cache: true
 
       - name: Flutter doctor
@@ -74,22 +76,34 @@ jobs:
         working-directory: project
         run: flutter pub get
 
-      # ===== PERBAIKAN: Upgrade dependencies otomatis =====
-      - name: Upgrade dependencies (fix compatibility issues)
+      # ===== PERBAIKAN: Bersihkan pubspec.yaml dari error =====
+      - name: Fix pubspec.yaml (remove garbage)
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
         working-directory: project
         run: |
-          echo "📦 Mengecek dan mengupgrade dependencies yang bermasalah..."
+          echo "🔧 Membersihkan pubspec.yaml dari error..."
+          # Hapus dependency_overrides yang tidak sengaja tertempel
+          sed -i '/dependency_overrides:/d' pubspec.yaml
+          # Hapus baris kosong yang tidak perlu
+          sed -i '/^$/N;/^\n$/D' pubspec.yaml
+
+      # ===== PERBAIKAN: Buat file override terpisah =====
+      - name: Create dependency overrides file
+        if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
+        working-directory: project
+        run: |
+          echo "📦 Membuat dependency_overrides..."
+          # Buat file override.yaml
+          cat > override.yaml << 'EOF'
+          dependency_overrides:
+            font_awesome_flutter:
+              git:
+                url: https://github.com/fluttercommunity/font_awesome_flutter.git
+                ref: master
+          EOF
           
-          # Cek apakah ada font_awesome_flutter di pubspec.yaml
-          if grep -q "font_awesome_flutter" pubspec.yaml; then
-            echo "🔧 Mengupgrade font_awesome_flutter ke versi terbaru..."
-            sed -i 's|font_awesome_flutter: [^,]*|font_awesome_flutter: ^10.10.0|g' pubspec.yaml
-            sed -i 's|font_awesome_flutter:.*|font_awesome_flutter: ^10.10.0|g' pubspec.yaml
-          fi
-          
-          # Upgrade semua dependencies
-          flutter pub upgrade
+          # Merge override ke pubspec.yaml (aman)
+          cat override.yaml >> pubspec.yaml
           flutter pub get
 
       # ===== PERBAIKAN: Upgrade Gradle ke 8.11.1 =====
@@ -135,29 +149,13 @@ jobs:
         if: github.event.inputs.build_type == 'release' && github.event.inputs.source_zip_url != ''
         working-directory: project
         run: |
-          # Coba build, jika gagal karena font_awesome_flutter, coba solusi alternatif
-          flutter build apk --release --target-platform android-arm,android-arm64 --android-skip-build-dependency-validation || \
-          (echo "⚠️ Build gagal, mencoba dengan dependency override..." && \
-           echo "📦 Menambahkan dependency override untuk font_awesome_flutter..." && \
-           echo "dependency_overrides:" >> pubspec.yaml && \
-           echo "  font_awesome_flutter: ^10.10.0" >> pubspec.yaml && \
-           flutter pub get && \
-           flutter build apk --release --target-platform android-arm,android-arm64 --android-skip-build-dependency-validation) || \
-          (echo "⚠️ Gagal dengan override, mencoba downgrade Flutter..." && \
-           flutter downgrade 3.22.0 && \
-           flutter pub get && \
-           flutter build apk --release --target-platform android-arm,android-arm64 --android-skip-build-dependency-validation)
+          flutter build apk --release --target-platform android-arm,android-arm64 --android-skip-build-dependency-validation
 
       - name: Build APK (Generic)
         if: github.event.inputs.build_type == 'generic' && github.event.inputs.source_zip_url != ''
         working-directory: project
         run: |
-          flutter build apk --release --target-platform android-arm,android-arm64 --android-skip-build-dependency-validation || \
-          (echo "📦 Menambahkan dependency override..." && \
-           echo "dependency_overrides:" >> pubspec.yaml && \
-           echo "  font_awesome_flutter: ^10.10.0" >> pubspec.yaml && \
-           flutter pub get && \
-           flutter build apk --release --target-platform android-arm,android-arm64 --android-skip-build-dependency-validation)
+          flutter build apk --release --target-platform android-arm,android-arm64 --android-skip-build-dependency-validation
 
       - name: Web2APK Build
         if: github.event.inputs.build_type == 'web2apk'
