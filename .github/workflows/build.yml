@@ -44,7 +44,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ===== PERBAIKAN: Gunakan Flutter versi 3.22.0 (lebih stabil) =====
+      # ===== PERBAIKAN: Gunakan Flutter versi 3.22.0 =====
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -71,42 +71,57 @@ jobs:
           unzip project.zip -d project
           ls -la project/
 
+      # ===== PERBAIKAN: Bersihkan pubspec.yaml dari error =====
+      - name: Fix pubspec.yaml (PERBAIKAN UTAMA)
+        if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
+        working-directory: project
+        run: |
+          echo "🔧 MEMPERBAIKI pubspec.yaml..."
+          
+          # Backup file asli
+          cp pubspec.yaml pubspec.yaml.bak
+          
+          # Hapus semua dependency_overrides yang salah
+          sed -i '/dependency_overrides:/d' pubspec.yaml
+          sed -i 's/dependency_overrides://g' pubspec.yaml
+          
+          # Hapus baris kosong yang tidak perlu
+          sed -i '/^$/d' pubspec.yaml
+          
+          # Hapus karakter aneh
+          sed -i 's/\r$//' pubspec.yaml
+          
+          # Tampilkan hasil
+          echo "📄 pubspec.yaml setelah perbaikan:"
+          cat pubspec.yaml
+
+      # ===== PERBAIKAN: Tambahkan dependency_overrides dengan benar =====
+      - name: Add proper dependency_overrides
+        if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
+        working-directory: project
+        run: |
+          echo "📦 Menambahkan dependency_overrides..."
+          
+          # Tambahkan di akhir file dengan format yang benar
+          echo "" >> pubspec.yaml
+          echo "dependency_overrides:" >> pubspec.yaml
+          echo "  font_awesome_flutter:" >> pubspec.yaml
+          echo "    git:" >> pubspec.yaml
+          echo "      url: https://github.com/fluttercommunity/font_awesome_flutter.git" >> pubspec.yaml
+          echo "      ref: master" >> pubspec.yaml
+          
+          echo "📄 pubspec.yaml setelah penambahan override:"
+          cat pubspec.yaml
+
       - name: Get Flutter dependencies
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
         working-directory: project
-        run: flutter pub get
-
-      # ===== PERBAIKAN: Bersihkan pubspec.yaml dari error =====
-      - name: Fix pubspec.yaml (remove garbage)
-        if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
-        working-directory: project
         run: |
-          echo "🔧 Membersihkan pubspec.yaml dari error..."
-          # Hapus dependency_overrides yang tidak sengaja tertempel
-          sed -i '/dependency_overrides:/d' pubspec.yaml
-          # Hapus baris kosong yang tidak perlu
-          sed -i '/^$/N;/^\n$/D' pubspec.yaml
+          flutter pub get || \
+          (echo "⚠️ Gagal pub get, mencoba dengan force..." && \
+           flutter pub get --no-example)
 
-      # ===== PERBAIKAN: Buat file override terpisah =====
-      - name: Create dependency overrides file
-        if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
-        working-directory: project
-        run: |
-          echo "📦 Membuat dependency_overrides..."
-          # Buat file override.yaml
-          cat > override.yaml << 'EOF'
-          dependency_overrides:
-            font_awesome_flutter:
-              git:
-                url: https://github.com/fluttercommunity/font_awesome_flutter.git
-                ref: master
-          EOF
-          
-          # Merge override ke pubspec.yaml (aman)
-          cat override.yaml >> pubspec.yaml
-          flutter pub get
-
-      # ===== PERBAIKAN: Upgrade Gradle ke 8.11.1 =====
+      # ===== PERBAIKAN: Upgrade Gradle =====
       - name: Upgrade Gradle wrapper & AGP
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
         working-directory: project
@@ -115,8 +130,6 @@ jobs:
             echo "📦 Mengupgrade Gradle ke versi 8.11.1..."
             sed -i 's|distributionUrl=.*|distributionUrl=https\://services.gradle.org/distributions/gradle-8.11.1-all.zip|g' android/gradle/wrapper/gradle-wrapper.properties
             cat android/gradle/wrapper/gradle-wrapper.properties
-          else
-            echo "⚠️ File gradle-wrapper.properties tidak ditemukan, melewati upgrade..."
           fi
 
           if [ -f "android/build.gradle" ]; then
@@ -124,7 +137,6 @@ jobs:
             sed -i 's|com.android.tools.build:gradle:[0-9.]*|com.android.tools.build:gradle:8.5.2|g' android/build.gradle
           fi
           if [ -f "android/build.gradle.kts" ]; then
-            echo "📦 Mengupdate AGP ke 8.5.2 (kts)..."
             sed -i 's|com.android.tools.build:gradle:[0-9.]*|com.android.tools.build:gradle:8.5.2|g' android/build.gradle.kts
           fi
 
