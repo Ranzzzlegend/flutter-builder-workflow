@@ -44,11 +44,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # ===== Gunakan Flutter 3.24.0 (stabil dan support semua versi) =====
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
-          flutter-version: 3.47.2
+          flutter-version: 3.24.0
           cache: true
 
       - name: Flutter doctor
@@ -70,27 +71,41 @@ jobs:
           unzip project.zip -d project
           ls -la project/
 
-      - name: Fix pubspec.yaml (AUTO-FIX)
+      # ===== PERBAIKAN: Fix pubspec.yaml support semua versi =====
+      - name: Fix pubspec.yaml (AUTO-FIX ALL VERSIONS)
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
         working-directory: project
         run: |
           echo "🔧 MEMPERBAIKI pubspec.yaml..."
           cp pubspec.yaml pubspec.yaml.bak
+          
+          # Hapus dependency_overrides yang salah
           sed -i '/dependency_overrides:/d' pubspec.yaml
           sed -i 's/dependency_overrides://g' pubspec.yaml
           sed -i '/^$/d' pubspec.yaml
+          
+          # Fix flutter_lints - support semua versi
           sed -i 's|flutter_lints:.*|flutter_lints: ^4.0.0|g' pubspec.yaml
+          sed -i 's|flutter_lints:^5.0.0|flutter_lints: ^4.0.0|g' pubspec.yaml
+          
+          # Fix font_awesome_flutter
           sed -i 's|font_awesome_flutter:.*|font_awesome_flutter: ^10.6.0|g' pubspec.yaml
+          
+          # Tambahkan dependency_overrides
           echo "" >> pubspec.yaml
           echo "dependency_overrides:" >> pubspec.yaml
           echo "  flutter_lints: ^4.0.0" >> pubspec.yaml
           echo "  font_awesome_flutter: ^10.6.0" >> pubspec.yaml
+          
+          echo "📄 pubspec.yaml setelah perbaikan:"
+          cat pubspec.yaml
 
+      # ===== PERBAIKAN: Auto-fix semua error =====
       - name: Auto-fix Dart source code errors
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
-        working-directory: project
-        run: |
+        working-directory: project        run: |
           echo "🔧 MEMPERBAIKI SOURCE CODE..."
+          
           for file in lib/*.dart; do
             if [ -f "$file" ]; then
               sed -i 's/FontAwesomeIcons\.userEdit/Icons.edit/g' "$file"
@@ -109,14 +124,19 @@ jobs:
               sed -i 's/FontAwesomeIcons\.userAstronaut/Icons.person/g' "$file"
             fi
           done
+          
+          echo "✅ Semua source code telah diperbaiki!"
 
       - name: Get Flutter dependencies
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
         working-directory: project
         run: |
           flutter pub get || \
-          (rm -f pubspec.lock && flutter pub get)
+          (rm -f pubspec.lock && flutter pub get) || \
+          (echo "⚠️ Gagal pub get, mencoba dengan force..." && \
+           flutter pub get --no-example)
 
+      # ===== PERBAIKAN: Upgrade Gradle =====
       - name: Upgrade Gradle wrapper & AGP
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
         working-directory: project
