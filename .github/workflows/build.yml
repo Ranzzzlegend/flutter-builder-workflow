@@ -70,178 +70,153 @@ jobs:
           unzip project.zip -d project
           ls -la project/
 
-      # ==================================================================
-      # FIX PUBSPEC.YAML (AUTO-FIX) - lebih agresif dan aman
-      # ==================================================================
+      # ===== PERBAIKAN: Fix pubspec.yaml =====
       - name: Fix pubspec.yaml (AUTO-FIX)
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
         working-directory: project
         run: |
           echo "🔧 MEMPERBAIKI pubspec.yaml..."
           cp pubspec.yaml pubspec.yaml.bak
-
-          # Hapus dependency_overrides lama yang sering konflik
-          sed -i '/^dependency_overrides:/,/^[^ ]/d' pubspec.yaml
-
-          # Perbarui dependency umum ke versi yang stabil
+          
+          sed -i '/dependency_overrides:/d' pubspec.yaml
+          sed -i 's/dependency_overrides://g' pubspec.yaml
+          sed -i '/^$/d' pubspec.yaml
+          
           sed -i 's|flutter_lints:.*|flutter_lints: ^4.0.0|g' pubspec.yaml
           sed -i 's|font_awesome_flutter:.*|font_awesome_flutter: ^10.6.0|g' pubspec.yaml
           sed -i 's|package_info_plus:.*|package_info_plus: ^5.0.0|g' pubspec.yaml
           sed -i 's|share_plus:.*|share_plus: ^10.0.0|g' pubspec.yaml
-          sed -i 's|cupertino_icons:.*|cupertino_icons: ^1.0.6|g' pubspec.yaml
-
-          # Jika ada youtube_player_flutter, pastikan versi stabil
+          
           if grep -q "youtube_player_flutter" pubspec.yaml; then
             sed -i 's|youtube_player_flutter:.*|youtube_player_flutter: ^8.1.0|g' pubspec.yaml
           fi
-
-          # Jika ada flutter_inappwebview, pastikan versi stabil
           if grep -q "flutter_inappwebview" pubspec.yaml; then
             sed -i 's|flutter_inappwebview:.*|flutter_inappwebview: ^5.7.0|g' pubspec.yaml
           fi
+          
+          echo "" >> pubspec.yaml
+          echo "dependency_overrides:" >> pubspec.yaml
+          echo "  flutter_lints: ^4.0.0" >> pubspec.yaml
+          echo "  font_awesome_flutter: ^10.6.0" >> pubspec.yaml
+          echo "  package_info_plus: ^5.0.0" >> pubspec.yaml
+          echo "  share_plus: ^10.0.0" >> pubspec.yaml
+          echo "  web: ^0.5.0" >> pubspec.yaml
+          if grep -q "youtube_player_flutter" pubspec.yaml; then
+            echo "  youtube_player_flutter: ^8.1.0" >> pubspec.yaml
+          fi
+          if grep -q "flutter_inappwebview" pubspec.yaml; then
+            echo "  flutter_inappwebview: ^5.7.0" >> pubspec.yaml
+          fi
 
-          # Tambahkan dependency_overrides untuk mencegah konflik
-          cat >> pubspec.yaml << 'EOF'
-
-dependency_overrides:
-  flutter_lints: ^4.0.0
-  font_awesome_flutter: ^10.6.0
-  package_info_plus: ^5.0.0
-  share_plus: ^10.0.0
-  web: ^0.5.0
-  cupertino_icons: ^1.0.6
-EOF
-
-          echo "✅ pubspec.yaml setelah perbaikan:"
-          cat pubspec.yaml
-
-      # ==================================================================
-      # FIX SOURCE CODE DART (AUTO-FIX) - agar tidak error kompilasi
-      # ==================================================================
+      # ===== PERBAIKAN: Auto-fix source code =====
       - name: Auto-fix Dart source code errors
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
         working-directory: project
         run: |
           echo "🔧 MEMPERBAIKI SOURCE CODE..."
-          find lib -name "*.dart" -type f | while read file; do
-            # Ganti FontAwesomeIcons yang sudah deprecated dengan Icons standar
-            sed -i 's/FontAwesomeIcons\.userEdit/Icons.edit/g' "$file"
-            sed -i 's/FontAwesomeIcons\.calendarPlus/Icons.calendar_today/g' "$file"
-            sed -i 's/FontAwesomeIcons\.calendarDay/Icons.calendar_month/g' "$file"
-            sed -i 's/FontAwesomeIcons\.clock/Icons.timer/g' "$file"
-            sed -i 's/FontAwesomeIcons\.users/Icons.people/g' "$file"
-            sed -i 's/FontAwesomeIcons\.userPlus/Icons.person_add/g' "$file"
-            sed -i 's/FontAwesomeIcons\.userSlash/Icons.person_remove/g' "$file"
-            sed -i 's/FontAwesomeIcons\.user/Icons.person/g' "$file"
-            sed -i 's/FontAwesomeIcons\.lock/Icons.lock/g' "$file"
-            sed -i 's/FontAwesomeIcons\.whatsapp/Icons.whatsapp/g' "$file"
-            sed -i 's/FontAwesomeIcons\.telegram/Icons.telegram/g' "$file"
-            sed -i 's/FontAwesomeIcons\.tiktok/Icons.music_note/g' "$file"
-            sed -i 's/FontAwesomeIcons\.rocket/Icons.rocket_launch/g' "$file"
-            sed -i 's/FontAwesomeIcons\.userAstronaut/Icons.person/g' "$file"
-            # Hapus karakter aneh yang mungkin ada
-            sed -i 's/\x27/\x27/g' "$file"
+          for file in lib/*.dart; do
+            if [ -f "$file" ]; then
+              sed -i 's/FontAwesomeIcons\.userEdit/Icons.edit/g' "$file"
+              sed -i 's/FontAwesomeIcons\.calendarPlus/Icons.calendar_today/g' "$file"
+              sed -i 's/FontAwesomeIcons\.calendarDay/Icons.calendar_month/g' "$file"
+              sed -i 's/FontAwesomeIcons\.clock/Icons.timer/g' "$file"
+              sed -i 's/FontAwesomeIcons\.users/Icons.people/g' "$file"
+              sed -i 's/FontAwesomeIcons\.userPlus/Icons.person_add/g' "$file"
+              sed -i 's/FontAwesomeIcons\.userSlash/Icons.person_remove/g' "$file"
+              sed -i 's/FontAwesomeIcons\.user/Icons.person/g' "$file"
+              sed -i 's/FontAwesomeIcons\.lock/Icons.lock/g' "$file"
+              sed -i 's/FontAwesomeIcons\.whatsapp/Icons.whatsapp/g' "$file"
+              sed -i 's/FontAwesomeIcons\.telegram/Icons.telegram/g' "$file"
+              sed -i 's/FontAwesomeIcons\.tiktok/Icons.music_note/g' "$file"
+              sed -i 's/FontAwesomeIcons\.rocket/Icons.rocket_launch/g' "$file"
+              sed -i 's/FontAwesomeIcons\.userAstronaut/Icons.person/g' "$file"
+            fi
           done
-          echo "✅ Source code selesai diperbaiki."
 
-      # ==================================================================
-      # FIX GRADLE BUILD FILES - ANTI ERROR versionCode() expected
-      # ==================================================================
-      - name: Fix Gradle Build Files (ANTI ERROR)
+      # ================================================================
+      # ===== PERBAIKAN: Fix build.gradle.kts dengan CARA BENAR =====
+      # ================================================================
+      - name: Fix build.gradle.kts (FIX KOTLIN DSL - CORRECT)
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
         working-directory: project
         run: |
-          echo "🔧 MEMPERBAIKI GRADLE BUILD FILES..."
-
-          # --- PERBAIKAN android/app/build.gradle.kts (Kotlin DSL) ---
+          echo "🔧 MEMPERBAIKI build.gradle.kts..."
+          
+          # ============================================================
+          # Fix android/app/build.gradle.kts
+          # ============================================================
           if [ -f "android/app/build.gradle.kts" ]; then
-            echo "📦 Memperbaiki android/app/build.gradle.kts (Kotlin DSL)..."
+            echo "📦 Memperbaiki android/app/build.gradle.kts..."
+            
+            # BUAT BACKUP
             cp android/app/build.gradle.kts android/app/build.gradle.kts.bak
-
-            # Hapus semua baris yang mengandung versionCode = ... dan versionName = ...
-            sed -i '/versionCode\s*=/d' android/app/build.gradle.kts
-            sed -i '/versionName\s*=/d' android/app/build.gradle.kts
-
-            # Sisipkan baris yang benar di dalam defaultConfig
-            sed -i '/defaultConfig {/a\        versionCode = flutter.versionCode()' android/app/build.gradle.kts
-            sed -i '/defaultConfig {/a\        versionName = flutter.versionName()' android/app/build.gradle.kts
-
-            # Pastikan tidak ada duplikat yang salah
-            sed -i 's/versionCode = flutter\.versionCode/versionCode = flutter.versionCode()/g'
-            sed -i 's/versionName = flutter\.versionName/versionName = flutter.versionName()/g'
-
-            echo "✅ android/app/build.gradle.kts selesai diperbaiki."
-            grep -n "versionCode\|versionName" android/app/build.gradle.kts || true
-          fi
-
-          # --- PERBAIKAN android/app/build.gradle (Groovy DSL) ---
-          if [ -f "android/app/build.gradle" ]; then
-            echo "📦 Memperbaiki android/app/build.gradle (Groovy DSL)..."
-            cp android/app/build.gradle android/app/build.gradle.bak
-
-            # Di Groovy, versionCode = flutter.versionCode (tanpa kurung)
-            sed -i 's/versionCode = flutter\.versionCode()/versionCode = flutter.versionCode/g' android/app/build.gradle
-            sed -i 's/versionName = flutter\.versionName()/versionName = flutter.versionName/g' android/app/build.gradle
-
-            # Jika belum ada, tambahkan di defaultConfig
-            if ! grep -q "versionCode = flutter.versionCode" android/app/build.gradle; then
-              sed -i '/defaultConfig {/a\        versionCode flutter.versionCode' android/app/build.gradle
-              sed -i '/defaultConfig {/a\        versionName flutter.versionName' android/app/build.gradle
+            
+            # ==== PERBAIKAN 1: Hapus semua double parentheses ====
+            sed -i 's/flutter\.versionCode()()/flutter.versionCode()/g' android/app/build.gradle.kts
+            sed -i 's/flutter\.versionName()()/flutter.versionName()/g' android/app/build.gradle.kts
+            
+            # ==== PERBAIKAN 2: Fix versionCode dengan cara yang benar ====
+            # Cari baris versionCode = flutter.versionCode atau versionCode = flutter.versionCode()
+            # Ubah menjadi versionCode = flutter.versionCode (tanpa parentheses, karena di Kotlin DSL flutter.versionCode adalah properti)
+            sed -i 's/versionCode = flutter\.versionCode()/versionCode = flutter.versionCode/g' android/app/build.gradle.kts
+            sed -i 's/versionName = flutter\.versionName()/versionName = flutter.versionName/g' android/app/build.gradle.kts
+            
+            # ==== PERBAIKAN 3: Jika masih ada yang salah, gunakan pendekatan alternatif ====
+            # Cek apakah masih ada error dengan mencari pola yang salah
+            if grep -q "versionCode = flutter\.versionCode()" android/app/build.gradle.kts; then
+              echo "⚠️ Masih ada error, menggunakan pendekatan alternatif..."
+              # Hapus baris yang bermasalah dan tulis ulang
+              sed -i '/versionCode = flutter\.versionCode()/d' android/app/build.gradle.kts
+              sed -i '/versionName = flutter\.versionName()/d' android/app/build.gradle.kts
+              # Tambahkan baris yang benar di defaultConfig
+              sed -i '/defaultConfig {/a\        versionCode = flutter.versionCode' android/app/build.gradle.kts
+              sed -i '/defaultConfig {/a\        versionName = flutter.versionName' android/app/build.gradle.kts
             fi
-
-            echo "✅ android/app/build.gradle selesai diperbaiki."
-            grep -n "versionCode\|versionName" android/app/build.gradle || true
+            
+            echo "📄 android/app/build.gradle.kts setelah perbaikan:"
+            grep -A 10 "defaultConfig" android/app/build.gradle.kts || cat android/app/build.gradle.kts | head -30
           fi
-
-          # --- PERBAIKAN android/build.gradle.kts (root) ---
+          
+          # ============================================================
+          # Fix android/build.gradle.kts
+          # ============================================================
           if [ -f "android/build.gradle.kts" ]; then
+            echo "📦 Memperbaiki android/build.gradle.kts..."
             sed -i 's/com.android.tools.build:gradle:[0-9.]*/com.android.tools.build:gradle:8.5.2/g' android/build.gradle.kts
-            sed -i 's/kotlin_version = .*/kotlin_version = "1.9.24"/' android/build.gradle.kts
           fi
 
-          # --- PERBAIKAN android/build.gradle (root) ---
-          if [ -f "android/build.gradle" ]; then
-            sed -i 's/com.android.tools.build:gradle:[0-9.]*/com.android.tools.build:gradle:8.5.2/g' android/build.gradle
-            sed -i 's/kotlin_version = .*/kotlin_version = "1.9.24"/' android/build.gradle
-          fi
-
-          # --- PERBAIKAN gradle wrapper properties ---
-          if [ -f "android/gradle/wrapper/gradle-wrapper.properties" ]; then
-            sed -i 's|distributionUrl=.*|distributionUrl=https\://services.gradle.org/distributions/gradle-8.11.1-all.zip|g' android/gradle/wrapper/gradle-wrapper.properties
-          fi
-
-          # Pastikan gradlew executable
-          if [ -f "android/gradlew" ]; then
-            chmod +x android/gradlew
-          fi
-
-      # ==================================================================
-      # GET DEPENDENCIES (dengan retry)
-      # ==================================================================
+      # ================================================================
+      # ===== Get dependencies =====
+      # ================================================================
       - name: Get Flutter dependencies
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
         working-directory: project
         run: |
           flutter pub get || (rm -f pubspec.lock && flutter pub get)
 
-      # ==================================================================
-      # BUILD APK
-      # ==================================================================
+      # ================================================================
+      # ===== Upgrade Gradle =====
+      # ================================================================
+      - name: Upgrade Gradle wrapper
+        if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
+        working-directory: project
+        run: |
+          if [ -f "android/gradle/wrapper/gradle-wrapper.properties" ]; then
+            sed -i 's|distributionUrl=.*|distributionUrl=https\://services.gradle.org/distributions/gradle-8.11.1-all.zip|g' android/gradle/wrapper/gradle-wrapper.properties
+          fi
+          if [ -f "android/gradlew" ]; then
+            chmod +x android/gradlew
+          fi
+
+      # ================================================================
+      # ===== Build APK =====
+      # ================================================================
       - name: Build APK (Release)
         if: github.event.inputs.build_type == 'release' && github.event.inputs.source_zip_url != ''
         working-directory: project
         run: |
           flutter build apk --release --target-platform android-arm,android-arm64 --android-skip-build-dependency-validation
 
-      - name: Build APK (Debug)
-        if: github.event.inputs.build_type == 'debug' && github.event.inputs.source_zip_url != ''
-        working-directory: project
-        run: |
-          flutter build apk --debug --target-platform android-arm,android-arm64 --android-skip-build-dependency-validation
-
-      # ==================================================================
-      # UPLOAD ARTIFACT
-      # ==================================================================
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
