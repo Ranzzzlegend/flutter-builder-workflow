@@ -90,22 +90,18 @@ try:
         content = f.read()
     
     # Fix environment section
-    # Hapus semua environment: yang ada
     content = re.sub(r'^environment:.*$', '', content, flags=re.MULTILINE)
     content = re.sub(r'^  sdk:.*$', '', content, flags=re.MULTILINE)
     content = re.sub(r'^  flutter:.*$', '', content, flags=re.MULTILINE)
     
-    # Bersihkan baris kosong ganda
     content = re.sub(r'\n\s*\n\s*\n', '\n\n', content)
     
-    # Tambahkan environment yang benar setelah name dan description
     lines = content.split('\n')
     new_lines = []
     env_added = False
     
     for line in lines:
         new_lines.append(line)
-        # Tambahkan environment setelah description atau version
         if not env_added and (line.startswith('description:') or line.startswith('version:')):
             new_lines.append('environment:')
             new_lines.append('  sdk: ">=3.0.0 <4.0.0"')
@@ -113,7 +109,6 @@ try:
             env_added = True
     
     if not env_added:
-        # Kalau tidak ketemu, tambahkan setelah name:
         for i, line in enumerate(new_lines):
             if line.startswith('name:'):
                 new_lines.insert(i+1, 'environment:')
@@ -123,11 +118,8 @@ try:
     
     content = '\n'.join(new_lines)
     
-    # Bersihkan dependency_overrides yang lama
     content = re.sub(r'^dependency_overrides:.*$', '', content, flags=re.MULTILINE)
     content = re.sub(r'^  [a-zA-Z_]+:.*$', '', content, flags=re.MULTILINE)
-    
-    # Hapus semua baris kosong ganda lagi
     content = re.sub(r'\n\s*\n\s*\n', '\n\n', content)
     
     with open('pubspec.yaml', 'w') as f:
@@ -151,7 +143,6 @@ try:
     with open('pubspec.yaml', 'r') as f:
         content = f.read()
     
-    # Upgrade dependencies ke versi terbaru
     replacements = {
         r'flutter_lints:.*': 'flutter_lints: ^5.0.0',
         r'font_awesome_flutter:.*': 'font_awesome_flutter: ^10.7.0',
@@ -187,10 +178,8 @@ try:
     with open('pubspec.yaml', 'r') as f:
         content = f.read()
     
-    # Hapus dependency_overrides yang sudah ada
     lines = content.split('\n')
     new_lines = []
-    skip = False
     in_dep_overrides = False
     
     for line in lines:
@@ -206,7 +195,6 @@ try:
     
     content = '\n'.join(new_lines)
     
-    # Tambahkan dependency_overrides di akhir file
     dep_overrides = """
 dependency_overrides:
   flutter_lints: ^5.0.0
@@ -251,14 +239,12 @@ try:
     
 except Exception as e:
     print(f"❌ pubspec.yaml INVALID: {e}")
-    # Tampilkan isi file untuk debugging
     with open('pubspec.yaml', 'r') as f:
         print("--- Isi pubspec.yaml ---")
         print(f.read())
     sys.exit(1)
 PYTHON_SCRIPT
 
-          # Tampilkan hasil akhir
           echo "📄 pubspec.yaml FINAL:"
           cat pubspec.yaml
 
@@ -296,29 +282,16 @@ PYTHON_SCRIPT
         run: |
           echo "🔧 MEMPERBAIKI build.gradle.kts..."
           
-          # ============================================================
-          # Fix android/app/build.gradle.kts
-          # ============================================================
           if [ -f "android/app/build.gradle.kts" ]; then
             echo "📦 Memperbaiki android/app/build.gradle.kts..."
-            
             cp android/app/build.gradle.kts android/app/build.gradle.kts.bak
-            
-            # FIX: Pastikan versionCode & versionName menggunakan PARENTHESES
             sed -i 's/versionCode = flutter\.versionCode/versionCode = flutter.versionCode()/g' android/app/build.gradle.kts
             sed -i 's/versionName = flutter\.versionName/versionName = flutter.versionName()/g' android/app/build.gradle.kts
-            
-            # Bersihkan double parentheses
             sed -i 's/flutter\.versionCode()()/flutter.versionCode()/g' android/app/build.gradle.kts
             sed -i 's/flutter\.versionName()()/flutter.versionName()/g' android/app/build.gradle.kts
-            
-            echo "📄 android/app/build.gradle.kts setelah perbaikan:"
             grep -A 5 "defaultConfig" android/app/build.gradle.kts || cat android/app/build.gradle.kts | head -30
           fi
           
-          # ============================================================
-          # Fix android/build.gradle.kts
-          # ============================================================
           if [ -f "android/build.gradle.kts" ]; then
             echo "📦 Memperbaiki android/build.gradle.kts..."
             sed -i 's/com.android.tools.build:gradle:[0-9.]*/com.android.tools.build:gradle:8.7.0/g' android/build.gradle.kts
@@ -330,26 +303,12 @@ PYTHON_SCRIPT
         working-directory: project
         run: |
           echo "🔧 FIXING flutter_inappwebview Namespace..."
-          
-          # Cari file build.gradle dari plugin inappwebview di pub cache
           INAPPWEBVIEW_PATH=$(find /home/runner/.pub-cache -path "*/flutter_inappwebview-*/android/build.gradle" 2>/dev/null | head -1)
-          
           if [ -n "$INAPPWEBVIEW_PATH" ]; then
-            echo "📦 Menemukan: $INAPPWEBVIEW_PATH"
-            
-            # Backup
             cp "$INAPPWEBVIEW_PATH" "$INAPPWEBVIEW_PATH.bak"
-            
-            # Tambahkan namespace jika belum ada
             if ! grep -q "namespace" "$INAPPWEBVIEW_PATH"; then
               echo "namespace \"com.pichillilorenzo.flutter_inappwebview\"" >> "$INAPPWEBVIEW_PATH"
-              echo "✅ Namespace ditambahkan!"
-            else
-              echo "ℹ️ Namespace sudah ada, melewati..."
             fi
-            
-            # Tampilkan hasil
-            cat "$INAPPWEBVIEW_PATH"
           else
             echo "⚠️ File build.gradle dari flutter_inappwebview tidak ditemukan"
           fi
