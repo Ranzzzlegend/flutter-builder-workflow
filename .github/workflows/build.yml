@@ -134,40 +134,55 @@ jobs:
           done
 
       # ================================================================
-      # ===== PERBAIKAN: Fix build.gradle.kts =====
+      # ===== PERBAIKAN: Fix build.gradle.kts dengan CARA BENAR =====
       # ================================================================
-      - name: Fix build.gradle.kts (FIX KOTLIN DSL)
+      - name: Fix build.gradle.kts (FIX KOTLIN DSL - CORRECT)
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
         working-directory: project
         run: |
           echo "🔧 MEMPERBAIKI build.gradle.kts..."
           
+          # ============================================================
           # Fix android/app/build.gradle.kts
+          # ============================================================
           if [ -f "android/app/build.gradle.kts" ]; then
             echo "📦 Memperbaiki android/app/build.gradle.kts..."
             
-            # Fix versionCode = flutter.versionCode → versionCode = flutter.versionCode()
-            sed -i 's/versionCode = flutter\.versionCode/versionCode = flutter.versionCode()/g' android/app/build.gradle.kts
-            sed -i 's/versionName = flutter\.versionName/versionName = flutter.versionName()/g' android/app/build.gradle.kts
+            # BUAT BACKUP
+            cp android/app/build.gradle.kts android/app/build.gradle.kts.bak
             
-            # Fix defaultConfig
-            sed -i 's/flutter\.versionCode/flutter.versionCode()/g' android/app/build.gradle.kts
-            sed -i 's/flutter\.versionName/flutter.versionName()/g' android/app/build.gradle.kts
+            # ==== PERBAIKAN 1: Hapus semua double parentheses ====
+            sed -i 's/flutter\.versionCode()()/flutter.versionCode()/g' android/app/build.gradle.kts
+            sed -i 's/flutter\.versionName()()/flutter.versionName()/g' android/app/build.gradle.kts
+            
+            # ==== PERBAIKAN 2: Fix versionCode dengan cara yang benar ====
+            # Cari baris versionCode = flutter.versionCode atau versionCode = flutter.versionCode()
+            # Ubah menjadi versionCode = flutter.versionCode (tanpa parentheses, karena di Kotlin DSL flutter.versionCode adalah properti)
+            sed -i 's/versionCode = flutter\.versionCode()/versionCode = flutter.versionCode/g' android/app/build.gradle.kts
+            sed -i 's/versionName = flutter\.versionName()/versionName = flutter.versionName/g' android/app/build.gradle.kts
+            
+            # ==== PERBAIKAN 3: Jika masih ada yang salah, gunakan pendekatan alternatif ====
+            # Cek apakah masih ada error dengan mencari pola yang salah
+            if grep -q "versionCode = flutter\.versionCode()" android/app/build.gradle.kts; then
+              echo "⚠️ Masih ada error, menggunakan pendekatan alternatif..."
+              # Hapus baris yang bermasalah dan tulis ulang
+              sed -i '/versionCode = flutter\.versionCode()/d' android/app/build.gradle.kts
+              sed -i '/versionName = flutter\.versionName()/d' android/app/build.gradle.kts
+              # Tambahkan baris yang benar di defaultConfig
+              sed -i '/defaultConfig {/a\        versionCode = flutter.versionCode' android/app/build.gradle.kts
+              sed -i '/defaultConfig {/a\        versionName = flutter.versionName' android/app/build.gradle.kts
+            fi
             
             echo "📄 android/app/build.gradle.kts setelah perbaikan:"
-            cat android/app/build.gradle.kts | head -50
+            grep -A 10 "defaultConfig" android/app/build.gradle.kts || cat android/app/build.gradle.kts | head -30
           fi
           
-          # Fix android/build.gradle.kts jika ada
+          # ============================================================
+          # Fix android/build.gradle.kts
+          # ============================================================
           if [ -f "android/build.gradle.kts" ]; then
             echo "📦 Memperbaiki android/build.gradle.kts..."
             sed -i 's/com.android.tools.build:gradle:[0-9.]*/com.android.tools.build:gradle:8.5.2/g' android/build.gradle.kts
-          fi
-          
-          # Jika ada build.gradle (non-kts), perbaiki juga
-          if [ -f "android/app/build.gradle" ]; then
-            echo "📦 Memperbaiki android/app/build.gradle..."
-            grep -q "namespace" android/app/build.gradle || sed -i '/android {/a\    namespace "com.example.app"' android/app/build.gradle
           fi
 
       # ================================================================
