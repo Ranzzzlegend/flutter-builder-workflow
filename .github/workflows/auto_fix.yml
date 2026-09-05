@@ -1,0 +1,147 @@
+name: Auto Fix Build
+
+on:
+  workflow_run:
+    workflows: ["Flutter Build & Web2APK"]
+    types: [completed]
+    branches: [main]
+
+jobs:
+  auto-fix:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'failure' }}
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+      
+    - name: Setup Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: '3.24.0'
+        channel: 'stable'
+        cache: true
+        
+    - name: Get packages
+      run: flutter pub get
+      
+    - name: Ambil log error dari build sebelumnya
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        echo "📥 Mendapatkan log error..."
+        
+        # Download log dari workflow yang gagal
+        curl -sL \
+          -H "Authorization: Bearer $GITHUB_TOKEN" \
+          "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}/logs" \
+          -o build_logs.txt || true
+          
+        # Ekstrak error
+        grep -E "Error:|error:" build_logs.txt > errors.txt || true
+        echo "📊 ERROR LOG:"
+        cat errors.txt || true
+        
+    - name: Analisis dan Perbaiki Error
+      run: |
+        echo "🔧 Menganalisis error..."
+        
+        # Inisialisasi variabel perubahan
+        declare -A CHANGES
+        
+        # PENTING: Perbaikan dilakukan dengan sed/perl (bukan dart)
+        
+        # 1. FIX: FaIconData vs IconData
+        if grep -q "FaIconData" errors.txt; then
+          echo "📝 Menemukan masalah FaIconData..."
+          
+          # Ganti Icon(FontAwesomeIcons.xxx) menjadi FaIcon(FontAwesomeIcons.xxx)
+          find lib/ -name "*.dart" -exec sed -i 's/Icon(FontAwesomeIcons\./FaIcon(FontAwesomeIcons\./g' {} +
+          
+          # Ganti parameter IconData menjadi FaIconData
+          find lib/ -name "*.dart" -exec sed -i 's/required IconData icon/required FaIconData icon/g' {} +
+          find lib/ -name "*.dart" -exec sed -i 's/required IconData? icon/required FaIconData? icon/g' {} +
+          find lib/ -name "*.dart" -exec sed -i 's/IconData icon/FaIconData icon/g' {} +
+          
+          echo "✅ Perbaikan FaIconData selesai"
+        fi
+        
+        # 2. FIX: Missing import
+        if grep -q "isn't defined" errors.txt; then
+          echo "📝 Menemukan missing import..."
+          
+          # Ambil nama class yang tidak ditemukan
+          MISSING_CLASS=$(grep -oP "isn't defined\s+'\K(\w+)" errors.txt | head -1)
+          
+          # Cari file yang perlu di-import
+          case "$MISSING_CLASS" in
+            *Page)
+              find lib/ -name "*.dart" -exec sed -i "s/import 'dart:convert';/import 'dart:convert';\nimport '$MISSING_CLASS';/g" {} +
+              ;;
+            *)
+              echo "⚠️ Tidak tahu cara import $MISSING_CLASS"
+              ;;
+          esac
+          
+          echo "✅ Perbaikan missing import selesai"
+        fi
+        
+        # 3. FIX: Type mismatch
+        if grep -q "can't be assigned to parameter type" errors.txt; then
+          echo "📝 Menemukan type mismatch..."
+          
+          # Ambil file yang error
+          ERROR_FILE=$(grep -oP "^lib/\S+\.dart" errors.txt | head -1)
+          
+          if [ -n "$ERROR_FILE" ]; then
+            # Ganti IconData dengan FaIconData
+            sed -i 's/IconData/FaIconData/g' "$ERROR_FILE"
+            echo "✅ Perbaikan type mismatch di $ERROR_FILE"
+          fi
+          
+          echo "✅ Perbaikan type mismatch selesai"
+        fi
+        
+        # 4. FIX: Pubspec problem
+        if grep -q "pub get failed" errors.txt; then
+          echo "📝 Menemukan masalah dependency..."
+          
+          # Update font_awesome_flutter ke versi terbaru
+          sed -i 's/font_awesome_flutter:.*/font_awesome_flutter: ^11.0.0/g' pubspec.yaml
+          
+          echo "✅ Perbaikan dependency selesai"
+        fi
+        
+        echo "📋 Daftar perubahan:"
+        git status
+        
+    - name: Commit dan Push Perbaikan
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        git config --global user.email "bot@xworm.com"
+        git config --global user.name "X-WORM Bot"
+        
+        git add .
+        git commit -m "🤖 Auto-fix: Perbaikan build error (${GITHUB_RUN_NUMBER})" || echo "Tidak ada perubahan"
+        git push origin main || echo "Push gagal"
+        
+    - name: Kirim notifikasi ke Telegram
+      if: success()
+      env:
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      run: |
+        curl -F "chat_id=$TELEGRAM_CHAT_ID" \
+             -F "text=🔧 PERBAIKAN OTOMATIS BERHASIL!\n\n✅ Code telah diperbaiki\n🔄 Build ulang sedang berjalan..." \
+             "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage"
+             
+    - name: Re-trigger build
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        curl -X POST \
+          -H "Authorization: Bearer $GITHUB_TOKEN" \
+          -H "Accept: application/vnd.github.v3+json" \
+          "https://api.github.com/repos/${{ github.repository }}/actions/workflows/flutter_build.yml/dispatches" \
+          -d '{"ref":"main"}' || true
