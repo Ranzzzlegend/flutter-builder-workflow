@@ -129,6 +129,12 @@ try:
         r'dio:.*': 'dio: ^5.7.0',
         r'youtube_player_flutter:.*': 'youtube_player_flutter: ^9.0.0',
         r'flutter_inappwebview:.*': 'flutter_inappwebview: ^6.1.5',
+        r'webview_flutter:.*': 'webview_flutter: ^4.4.0',
+        r'google_fonts:.*': 'google_fonts: ^6.2.1',
+        r'cached_network_image:.*': 'cached_network_image: ^3.4.1',
+        r'intl:.*': 'intl: ^0.19.0',
+        r'flutter_launcher_icons:.*': 'flutter_launcher_icons: ^0.14.1',
+        r'url_launcher:.*': 'url_launcher: ^6.3.0',
     }
     for pattern, replacement in replacements.items():
         content = re.sub(rf'^(\s*){pattern}$', rf'\1{replacement}', content, flags=re.MULTILINE)
@@ -170,6 +176,12 @@ dependency_overrides:
   web: ^1.0.0
   youtube_player_flutter: ^9.0.0
   flutter_inappwebview: ^6.1.5
+  webview_flutter: ^4.4.0
+  google_fonts: ^6.2.1
+  cached_network_image: ^3.4.1
+  intl: ^0.19.0
+  flutter_launcher_icons: ^0.14.1
+  url_launcher: ^6.3.0
 """
     with open('pubspec.yaml', 'w') as f:
         f.write(content)
@@ -199,24 +211,23 @@ PYTHON_SCRIPT
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
         working-directory: project
         run: |
-          for file in lib/*.dart; do
-            if [ -f "$file" ]; then
-              sed -i 's/FontAwesomeIcons\.userEdit/Icons.edit/g' "$file"
-              sed -i 's/FontAwesomeIcons\.calendarPlus/Icons.calendar_today/g' "$file"
-              sed -i 's/FontAwesomeIcons\.calendarDay/Icons.calendar_month/g' "$file"
-              sed -i 's/FontAwesomeIcons\.clock/Icons.timer/g' "$file"
-              sed -i 's/FontAwesomeIcons\.users/Icons.people/g' "$file"
-              sed -i 's/FontAwesomeIcons\.userPlus/Icons.person_add/g' "$file"
-              sed -i 's/FontAwesomeIcons\.userSlash/Icons.person_remove/g' "$file"
-              sed -i 's/FontAwesomeIcons\.user/Icons.person/g' "$file"
-              sed -i 's/FontAwesomeIcons\.lock/Icons.lock/g' "$file"
-              sed -i 's/FontAwesomeIcons\.whatsapp/Icons.whatsapp/g' "$file"
-              sed -i 's/FontAwesomeIcons\.telegram/Icons.telegram/g' "$file"
-              sed -i 's/FontAwesomeIcons\.tiktok/Icons.music_note/g' "$file"
-              sed -i 's/FontAwesomeIcons\.rocket/Icons.rocket_launch/g' "$file"
-              sed -i 's/FontAwesomeIcons\.userAstronaut/Icons.person/g' "$file"
-            fi
-          done
+          # Ganti FontAwesomeIcons yang deprecated
+          find lib -name "*.dart" -exec sed -i 's/FontAwesomeIcons\.userEdit/Icons.edit/g' {} \;
+          find lib -name "*.dart" -exec sed -i 's/FontAwesomeIcons\.calendarPlus/Icons.calendar_today/g' {} \;
+          find lib -name "*.dart" -exec sed -i 's/FontAwesomeIcons\.calendarDay/Icons.calendar_month/g' {} \;
+          find lib -name "*.dart" -exec sed -i 's/FontAwesomeIcons\.clock/Icons.timer/g' {} \;
+          find lib -name "*.dart" -exec sed -i 's/FontAwesomeIcons\.users/Icons.people/g' {} \;
+          find lib -name "*.dart" -exec sed -i 's/FontAwesomeIcons\.userPlus/Icons.person_add/g' {} \;
+          find lib -name "*.dart" -exec sed -i 's/FontAwesomeIcons\.userSlash/Icons.person_remove/g' {} \;
+          find lib -name "*.dart" -exec sed -i 's/FontAwesomeIcons\.user/Icons.person/g' {} \;
+          find lib -name "*.dart" -exec sed -i 's/FontAwesomeIcons\.lock/Icons.lock/g' {} \;
+          find lib -name "*.dart" -exec sed -i 's/FontAwesomeIcons\.whatsapp/Icons.whatsapp/g' {} \;
+          find lib -name "*.dart" -exec sed -i 's/FontAwesomeIcons\.telegram/Icons.telegram/g' {} \;
+          find lib -name "*.dart" -exec sed -i 's/FontAwesomeIcons\.tiktok/Icons.music_note/g' {} \;
+          find lib -name "*.dart" -exec sed -i 's/FontAwesomeIcons\.rocket/Icons.rocket_launch/g' {} \;
+          find lib -name "*.dart" -exec sed -i 's/FontAwesomeIcons\.userAstronaut/Icons.person/g' {} \;
+          # Perbaiki import material jika perlu
+          find lib -name "*.dart" -exec sed -i 's/import '\''package:font_awesome_flutter\/font_awesome_flutter.dart'\'';/\/\/ import '\''package:font_awesome_flutter\/font_awesome_flutter.dart'\'';/g' {} \;
 
       # ===== FIX build.gradle.kts =====
       - name: Fix build.gradle.kts
@@ -229,6 +240,7 @@ PYTHON_SCRIPT
             sed -i 's/versionName = flutter\.versionName/versionName = flutter.versionName()/g' android/app/build.gradle.kts
             sed -i 's/flutter\.versionCode()()/flutter.versionCode()/g' android/app/build.gradle.kts
             sed -i 's/flutter\.versionName()()/flutter.versionName()/g' android/app/build.gradle.kts
+            sed -i 's/namespace = "com.example"/namespace = "com.example"/g' android/app/build.gradle.kts
           fi
 
       # ===== FIX flutter_inappwebview namespace =====
@@ -259,13 +271,19 @@ PYTHON_SCRIPT
           if [ -f "android/gradle/wrapper/gradle-wrapper.properties" ]; then
             sed -i 's|distributionUrl=.*|distributionUrl=https\://services.gradle.org/distributions/gradle-8.9-all.zip|g' android/gradle/wrapper/gradle-wrapper.properties
           fi
+          if [ -f "android/build.gradle" ]; then
+            sed -i 's/com.android.tools.build:gradle:.*/com.android.tools.build:gradle:8.3.0/g' android/build.gradle
+          fi
+          if [ -f "android/settings.gradle" ]; then
+            sed -i 's/dev.flutter.flutter-plugin-loader/plugins { id "dev.flutter.flutter-plugin-loader" version "1.0.0" }/g' android/settings.gradle
+          fi
 
       # ===== Build APK =====
       - name: Build APK (Release)
         if: github.event.inputs.build_type == 'release' && github.event.inputs.source_zip_url != ''
         working-directory: project
         run: |
-          flutter build apk --release --target-platform android-arm,android-arm64 --android-skip-build-dependency-validation
+          flutter build apk --release --target-platform android-arm,android-arm64 --android-skip-build-dependency-validation || flutter build apk --release
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
