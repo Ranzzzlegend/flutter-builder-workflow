@@ -70,7 +70,7 @@ jobs:
           unzip project.zip -d project
           ls -la project/
 
-      # ===== PERBAIKAN UTAMA: Upgrade & Fix pubspec.yaml =====
+      # ===== PERBAIKAN UTAMA: Fix pubspec.yaml dengan AMAN =====
       - name: Fix pubspec.yaml (AUTO-FIX - CRITICAL)
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
         working-directory: project
@@ -78,71 +78,191 @@ jobs:
           echo "🔧 MEMPERBAIKI pubspec.yaml..."
           cp pubspec.yaml pubspec.yaml.bak
           
-          # Hapus dependency_overrides yang lama
-          sed -i '/dependency_overrides:/d' pubspec.yaml
-          
-          # Upgrade semua dependency ke versi terbaru
-          sed -i 's|flutter_lints:.*|flutter_lints: ^5.0.0|g' pubspec.yaml
-          sed -i 's|font_awesome_flutter:.*|font_awesome_flutter: ^10.7.0|g' pubspec.yaml
-          sed -i 's|package_info_plus:.*|package_info_plus: ^8.0.0|g' pubspec.yaml
-          sed -i 's|share_plus:.*|share_plus: ^10.1.0|g' pubspec.yaml
-          sed -i 's|cupertino_icons:.*|cupertino_icons: ^1.0.8|g' pubspec.yaml
-          sed -i 's|http:.*|http: ^1.2.2|g' pubspec.yaml
-          sed -i 's|dio:.*|dio: ^5.7.0|g' pubspec.yaml
-          
-          # Fix youtube_player_flutter
-          if grep -q "youtube_player_flutter" pubspec.yaml; then
-            sed -i 's|youtube_player_flutter:.*|youtube_player_flutter: ^9.0.0|g' pubspec.yaml
-          fi
-          
-          # Fix flutter_inappwebview - UPGRADE KE VERSI BARU
-          if grep -q "flutter_inappwebview" pubspec.yaml; then
-            sed -i 's|flutter_inappwebview:.*|flutter_inappwebview: ^6.1.5|g' pubspec.yaml
-          fi
-          
-          # Tambahkan dependency_overrides untuk memaksa versi
-          echo "" >> pubspec.yaml
-          echo "dependency_overrides:" >> pubspec.yaml
-          echo "  flutter_lints: ^5.0.0" >> pubspec.yaml
-          echo "  font_awesome_flutter: ^10.7.0" >> pubspec.yaml
-          echo "  package_info_plus: ^8.0.0" >> pubspec.yaml
-          echo "  share_plus: ^10.1.0" >> pubspec.yaml
-          echo "  cupertino_icons: ^1.0.8" >> pubspec.yaml
-          echo "  http: ^1.2.2" >> pubspec.yaml
-          echo "  dio: ^5.7.0" >> pubspec.yaml
-          echo "  web: ^1.0.0" >> pubspec.yaml
-          
-          if grep -q "youtube_player_flutter" pubspec.yaml; then
-            echo "  youtube_player_flutter: ^9.0.0" >> pubspec.yaml
-          fi
-          
-          if grep -q "flutter_inappwebview" pubspec.yaml; then
-            echo "  flutter_inappwebview: ^6.1.5" >> pubspec.yaml
-          fi
-          
-          # Tampilkan hasil
-          echo "📄 pubspec.yaml setelah perbaikan:"
+          # ============================================
+          # FIX 1: Perbaiki environment section dengan PYTHON
+          # ============================================
+          python3 << 'PYTHON_SCRIPT'
+import re
+import sys
+
+try:
+    with open('pubspec.yaml', 'r') as f:
+        content = f.read()
+    
+    # Fix environment section
+    # Hapus semua environment: yang ada
+    content = re.sub(r'^environment:.*$', '', content, flags=re.MULTILINE)
+    content = re.sub(r'^  sdk:.*$', '', content, flags=re.MULTILINE)
+    content = re.sub(r'^  flutter:.*$', '', content, flags=re.MULTILINE)
+    
+    # Bersihkan baris kosong ganda
+    content = re.sub(r'\n\s*\n\s*\n', '\n\n', content)
+    
+    # Tambahkan environment yang benar setelah name dan description
+    lines = content.split('\n')
+    new_lines = []
+    env_added = False
+    
+    for line in lines:
+        new_lines.append(line)
+        # Tambahkan environment setelah description atau version
+        if not env_added and (line.startswith('description:') or line.startswith('version:')):
+            new_lines.append('environment:')
+            new_lines.append('  sdk: ">=3.0.0 <4.0.0"')
+            new_lines.append('  flutter: ">=3.0.0"')
+            env_added = True
+    
+    if not env_added:
+        # Kalau tidak ketemu, tambahkan setelah name:
+        for i, line in enumerate(new_lines):
+            if line.startswith('name:'):
+                new_lines.insert(i+1, 'environment:')
+                new_lines.insert(i+2, '  sdk: ">=3.0.0 <4.0.0"')
+                new_lines.insert(i+3, '  flutter: ">=3.0.0"')
+                break
+    
+    content = '\n'.join(new_lines)
+    
+    # Bersihkan dependency_overrides yang lama
+    content = re.sub(r'^dependency_overrides:.*$', '', content, flags=re.MULTILINE)
+    content = re.sub(r'^  [a-zA-Z_]+:.*$', '', content, flags=re.MULTILINE)
+    
+    # Hapus semua baris kosong ganda lagi
+    content = re.sub(r'\n\s*\n\s*\n', '\n\n', content)
+    
+    with open('pubspec.yaml', 'w') as f:
+        f.write(content)
+    
+    print("✅ Environment section fixed!")
+    
+except Exception as e:
+    print(f"❌ Error: {e}")
+    sys.exit(1)
+PYTHON_SCRIPT
+
+          # ============================================
+          # FIX 2: Upgrade dependencies dengan PYTHON
+          # ============================================
+          python3 << 'PYTHON_SCRIPT'
+import re
+import sys
+
+try:
+    with open('pubspec.yaml', 'r') as f:
+        content = f.read()
+    
+    # Upgrade dependencies ke versi terbaru
+    replacements = {
+        r'flutter_lints:.*': 'flutter_lints: ^5.0.0',
+        r'font_awesome_flutter:.*': 'font_awesome_flutter: ^10.7.0',
+        r'package_info_plus:.*': 'package_info_plus: ^8.0.0',
+        r'share_plus:.*': 'share_plus: ^10.1.0',
+        r'cupertino_icons:.*': 'cupertino_icons: ^1.0.8',
+        r'http:.*': 'http: ^1.2.2',
+        r'dio:.*': 'dio: ^5.7.0',
+        r'youtube_player_flutter:.*': 'youtube_player_flutter: ^9.0.0',
+        r'flutter_inappwebview:.*': 'flutter_inappwebview: ^6.1.5',
+    }
+    
+    for pattern, replacement in replacements.items():
+        content = re.sub(rf'^(\s*){pattern}$', rf'\1{replacement}', content, flags=re.MULTILINE)
+    
+    with open('pubspec.yaml', 'w') as f:
+        f.write(content)
+    
+    print("✅ Dependencies upgraded!")
+    
+except Exception as e:
+    print(f"❌ Error: {e}")
+    sys.exit(1)
+PYTHON_SCRIPT
+
+          # ============================================
+          # FIX 3: Tambahkan dependency_overrides dengan PYTHON
+          # ============================================
+          python3 << 'PYTHON_SCRIPT'
+import sys
+
+try:
+    with open('pubspec.yaml', 'r') as f:
+        content = f.read()
+    
+    # Hapus dependency_overrides yang sudah ada
+    lines = content.split('\n')
+    new_lines = []
+    skip = False
+    in_dep_overrides = False
+    
+    for line in lines:
+        if line.strip() == 'dependency_overrides:':
+            in_dep_overrides = True
+            continue
+        if in_dep_overrides and (line.startswith('  ') or line.strip() == ''):
+            continue
+        if in_dep_overrides and not line.startswith('  '):
+            in_dep_overrides = False
+        
+        new_lines.append(line)
+    
+    content = '\n'.join(new_lines)
+    
+    # Tambahkan dependency_overrides di akhir file
+    dep_overrides = """
+dependency_overrides:
+  flutter_lints: ^5.0.0
+  font_awesome_flutter: ^10.7.0
+  package_info_plus: ^8.0.0
+  share_plus: ^10.1.0
+  cupertino_icons: ^1.0.8
+  http: ^1.2.2
+  dio: ^5.7.0
+  web: ^1.0.0
+  youtube_player_flutter: ^9.0.0
+  flutter_inappwebview: ^6.1.5
+"""
+    
+    content += dep_overrides
+    
+    with open('pubspec.yaml', 'w') as f:
+        f.write(content)
+    
+    print("✅ Dependency overrides added!")
+    
+except Exception as e:
+    print(f"❌ Error: {e}")
+    sys.exit(1)
+PYTHON_SCRIPT
+
+          # ============================================
+          # VERIFIKASI: Cek pubspec.yaml valid
+          # ============================================
+          python3 << 'PYTHON_SCRIPT'
+import yaml
+import sys
+
+try:
+    with open('pubspec.yaml', 'r') as f:
+        data = yaml.safe_load(f)
+    
+    print("✅ pubspec.yaml VALID!")
+    print(f"   Name: {data.get('name', 'N/A')}")
+    print(f"   Environment: {data.get('environment', 'N/A')}")
+    print(f"   Dependencies count: {len(data.get('dependencies', {}))}")
+    
+except Exception as e:
+    print(f"❌ pubspec.yaml INVALID: {e}")
+    # Tampilkan isi file untuk debugging
+    with open('pubspec.yaml', 'r') as f:
+        print("--- Isi pubspec.yaml ---")
+        print(f.read())
+    sys.exit(1)
+PYTHON_SCRIPT
+
+          # Tampilkan hasil akhir
+          echo "📄 pubspec.yaml FINAL:"
           cat pubspec.yaml
 
-      # ===== PERBAIKAN: Upgrade SDK Version di pubspec.yaml =====
-      - name: Fix SDK Version Constraint
-        if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
-        working-directory: project
-        run: |
-          echo "🔧 MEMPERBAIKI SDK VERSION..."
-          
-          # Ubah environment SDK constraint
-          sed -i 's/sdk:.*/sdk: ">=3.0.0 <4.0.0"/g' pubspec.yaml
-          
-          # Hapus baris environment yang mungkin bermasalah
-          sed -i '/^environment:/d' pubspec.yaml
-          sed -i '/^  sdk:/d' pubspec.yaml
-          sed -i '/^  flutter:/d' pubspec.yaml
-          
-          # Tambahkan environment yang benar di awal file
-          sed -i '1i environment:\n  sdk: ">=3.0.0 <4.0.0"\n  flutter: ">=3.0.0"' pubspec.yaml
-
-      # ===== PERBAIKAN: Auto-fix source code =====
+      # ===== Auto-fix source code =====
       - name: Auto-fix Dart source code errors
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
         working-directory: project
