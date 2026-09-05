@@ -48,7 +48,7 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: stable
-          flutter-version: 3.24.0
+          flutter-version: 3.22.0
           cache: true
 
       - name: Flutter doctor
@@ -70,7 +70,7 @@ jobs:
           unzip project.zip -d project
           ls -la project/
 
-      - name: Fix pubspec.yaml (AUTO-FIX)
+      - name: Fix pubspec.yaml (AUTO-FIX ALL)
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
         working-directory: project
         run: |
@@ -81,10 +81,12 @@ jobs:
           sed -i '/^$/d' pubspec.yaml
           sed -i 's|flutter_lints:.*|flutter_lints: ^4.0.0|g' pubspec.yaml
           sed -i 's|font_awesome_flutter:.*|font_awesome_flutter: ^10.6.0|g' pubspec.yaml
+          sed -i 's|package_info_plus:.*|package_info_plus: ^6.0.0|g' pubspec.yaml
           echo "" >> pubspec.yaml
           echo "dependency_overrides:" >> pubspec.yaml
           echo "  flutter_lints: ^4.0.0" >> pubspec.yaml
           echo "  font_awesome_flutter: ^10.6.0" >> pubspec.yaml
+          echo "  package_info_plus: ^6.0.0" >> pubspec.yaml
 
       - name: Auto-fix Dart source code errors
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
