@@ -44,12 +44,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ===== PERBAIKAN: Gunakan Flutter versi 3.22.0 =====
+      # ===== PERBAIKAN: Gunakan Flutter 3.22.0 (stabil & kompatibel) =====
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
-          version: 3.22.0
+          flutter-version: 3.22.0
           cache: true
 
       - name: Flutter doctor
@@ -71,55 +71,139 @@ jobs:
           unzip project.zip -d project
           ls -la project/
 
-      # ===== PERBAIKAN: Bersihkan pubspec.yaml dari error =====
-      - name: Fix pubspec.yaml (PERBAIKAN UTAMA)
+      # ===== PERBAIKAN: Fix pubspec.yaml =====
+      - name: Fix pubspec.yaml
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
         working-directory: project
         run: |
-          echo "🔧 MEMPERBAIKI pubspec.yaml..."
+          echo "🔧 Membersihkan pubspec.yaml..."
           
-          # Backup file asli
+          # Backup
           cp pubspec.yaml pubspec.yaml.bak
           
-          # Hapus semua dependency_overrides yang salah
+          # Hapus dependency_overrides yang salah
           sed -i '/dependency_overrides:/d' pubspec.yaml
           sed -i 's/dependency_overrides://g' pubspec.yaml
           
-          # Hapus baris kosong yang tidak perlu
+          # Hapus baris kosong ganda
           sed -i '/^$/d' pubspec.yaml
           
-          # Hapus karakter aneh
-          sed -i 's/\r$//' pubspec.yaml
+          # Gunakan font_awesome_flutter versi yang kompatibel
+          sed -i 's|font_awesome_flutter:.*|font_awesome_flutter: ^10.6.0|g' pubspec.yaml
           
-          # Tampilkan hasil
+          # Tambahkan dependency_overrides dengan benar
+          echo "" >> pubspec.yaml
+          echo "dependency_overrides:" >> pubspec.yaml
+          echo "  font_awesome_flutter: ^10.6.0" >> pubspec.yaml
+          
           echo "📄 pubspec.yaml setelah perbaikan:"
           cat pubspec.yaml
 
-      # ===== PERBAIKAN: Tambahkan dependency_overrides dengan benar =====
-      - name: Add proper dependency_overrides
+      # ===== PERBAIKAN: Auto-fix source code errors =====
+      - name: Auto-fix Dart source code errors
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
         working-directory: project
         run: |
-          echo "📦 Menambahkan dependency_overrides..."
+          echo "🔧 Memperbaiki source code Dart..."
           
-          # Tambahkan di akhir file dengan format yang benar
-          echo "" >> pubspec.yaml
-          echo "dependency_overrides:" >> pubspec.yaml
-          echo "  font_awesome_flutter:" >> pubspec.yaml
-          echo "    git:" >> pubspec.yaml
-          echo "      url: https://github.com/fluttercommunity/font_awesome_flutter.git" >> pubspec.yaml
-          echo "      ref: master" >> pubspec.yaml
+          # 1. Fix owner_page.dart - FontAwesomeIcons.userEdit
+          if [ -f "lib/owner_page.dart" ]; then
+            echo "📦 Memperbaiki owner_page.dart..."
+            sed -i 's/FontAwesomeIcons\.userEdit/Icons.edit/g' lib/owner_page.dart
+            sed -i 's/FontAwesomeIcons\.calendarPlus/Icons.calendar_today/g' lib/owner_page.dart
+            sed -i 's/FontAwesomeIcons\.clock/Icons.timer/g' lib/owner_page.dart
+            sed -i 's/FontAwesomeIcons\.users/Icons.people/g' lib/owner_page.dart
+            sed -i 's/FontAwesomeIcons\.userPlus/Icons.person_add/g' lib/owner_page.dart
+            sed -i 's/FontAwesomeIcons\.userSlash/Icons.person_remove/g' lib/owner_page.dart
+            sed -i 's/FontAwesomeIcons\.userEdit/Icons.edit/g' lib/owner_page.dart
+            sed -i 's/FontAwesomeIcons\.user/Icons.person/g' lib/owner_page.dart
+            sed -i 's/FontAwesomeIcons\.lock/Icons.lock/g' lib/owner_page.dart
+            sed -i 's/FontAwesomeIcons\.calendarDay/Icons.calendar_month/g' lib/owner_page.dart
+          fi
           
-          echo "📄 pubspec.yaml setelah penambahan override:"
-          cat pubspec.yaml
+          # 2. Fix landing.dart - FontAwesomeIcons.tiktok
+          if [ -f "lib/landing.dart" ]; then
+            echo "📦 Memperbaiki landing.dart..."
+            sed -i 's/FontAwesomeIcons\.tiktok/Icons.music_note/g' lib/landing.dart
+            sed -i 's/FontAwesomeIcons\.rocket/Icons.rocket_launch/g' lib/landing.dart
+            sed -i 's/FontAwesomeIcons\.telegram/Icons.telegram/g' lib/landing.dart
+          fi
+          
+          # 3. Fix bug_sender.dart - FontAwesomeIcons.whatsapp
+          if [ -f "lib/bug_sender.dart" ]; then
+            echo "📦 Memperbaiki bug_sender.dart..."
+            sed -i 's/FontAwesomeIcons\.whatsapp/Icons.whatsapp/g' lib/bug_sender.dart
+            sed -i 's/FontAwesomeIcons\.userSlash/Icons.person_remove/g' lib/bug_sender.dart
+            sed -i 's/FontAwesomeIcons\.userPlus/Icons.person_add/g' lib/bug_sender.dart
+            sed -i 's/FontAwesomeIcons\.user/Icons.person/g' lib/bug_sender.dart
+            sed -i 's/FontAwesomeIcons\.lock/Icons.lock/g' lib/bug_sender.dart
+            sed -i 's/FontAwesomeIcons\.calendarDay/Icons.calendar_month/g' lib/bug_sender.dart
+            sed -i 's/FontAwesomeIcons\.calendarPlus/Icons.calendar_today/g' lib/bug_sender.dart
+            sed -i 's/FontAwesomeIcons\.clock/Icons.timer/g' lib/bug_sender.dart
+            sed -i 's/FontAwesomeIcons\.users/Icons.people/g' lib/bug_sender.dart
+          fi
+          
+          # 4. Fix profile_page.dart - FontAwesomeIcons.userAstronaut
+          if [ -f "lib/profile_page.dart" ]; then
+            echo "📦 Memperbaiki profile_page.dart..."
+            sed -i 's/FontAwesomeIcons\.userAstronaut/Icons.person/g' lib/profile_page.dart
+            sed -i 's/FontAwesomeIcons\.user/Icons.person/g' lib/profile_page.dart
+          fi
+          
+          # 5. Fix admin_page.dart
+          if [ -f "lib/admin_page.dart" ]; then
+            echo "📦 Memperbaiki admin_page.dart..."
+            sed -i 's/FontAwesomeIcons\.userSlash/Icons.person_remove/g' lib/admin_page.dart
+            sed -i 's/FontAwesomeIcons\.userPlus/Icons.person_add/g' lib/admin_page.dart
+            sed -i 's/FontAwesomeIcons\.user/Icons.person/g' lib/admin_page.dart
+            sed -i 's/FontAwesomeIcons\.lock/Icons.lock/g' lib/admin_page.dart
+            sed -i 's/FontAwesomeIcons\.calendarDay/Icons.calendar_month/g' lib/admin_page.dart
+            sed -i 's/FontAwesomeIcons\.users/Icons.people/g' lib/admin_page.dart
+            sed -i 's/FontAwesomeIcons\.whatsapp/Icons.whatsapp/g' lib/admin_page.dart
+          fi
+          
+          # 6. Fix seller_page.dart
+          if [ -f "lib/seller_page.dart" ]; then
+            echo "📦 Memperbaiki seller_page.dart..."
+            sed -i 's/FontAwesomeIcons\.userPlus/Icons.person_add/g' lib/seller_page.dart
+            sed -i 's/FontAwesomeIcons\.user/Icons.person/g' lib/seller_page.dart
+            sed -i 's/FontAwesomeIcons\.lock/Icons.lock/g' lib/seller_page.dart
+            sed -i 's/FontAwesomeIcons\.calendarDay/Icons.calendar_month/g' lib/seller_page.dart
+            sed -i 's/FontAwesomeIcons\.calendarPlus/Icons.calendar_today/g' lib/seller_page.dart
+            sed -i 's/FontAwesomeIcons\.clock/Icons.timer/g' lib/seller_page.dart
+            sed -i 's/FontAwesomeIcons\.users/Icons.people/g' lib/seller_page.dart
+            sed -i 's/FontAwesomeIcons\.userEdit/Icons.edit/g' lib/seller_page.dart
+          fi
+          
+          # 7. Fix riwayat_page.dart
+          if [ -f "lib/riwayat_page.dart" ]; then
+            echo "📦 Memperbaiki riwayat_page.dart..."
+            sed -i 's/FontAwesomeIcons\.user/Icons.person/g' lib/riwayat_page.dart
+          fi
+
+          # 8. Fix cdrama_page.dart (jika ada FontAwesomeIcons)
+          if [ -f "lib/cdrama_page.dart" ]; then
+            echo "📦 Memperbaiki cdrama_page.dart..."
+            sed -i 's/FontAwesomeIcons\.whatsapp/Icons.whatsapp/g' lib/cdrama_page.dart
+            sed -i 's/FontAwesomeIcons\.telegram/Icons.telegram/g' lib/cdrama_page.dart
+          fi
+
+          # 9. Fix tools_gateway.dart
+          if [ -f "lib/tools_gateway.dart" ]; then
+            echo "📦 Memperbaiki tools_gateway.dart..."
+            sed -i 's/FontAwesomeIcons\.user/Icons.person/g' lib/tools_gateway.dart
+          fi
+          
+          echo "✅ Semua source code telah diperbaiki!"
 
       - name: Get Flutter dependencies
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
         working-directory: project
         run: |
           flutter pub get || \
-          (echo "⚠️ Gagal pub get, mencoba dengan force..." && \
-           flutter pub get --no-example)
+          (echo "⚠️ Gagal pub get, membersihkan cache..." && \
+           flutter pub cache repair && \
+           flutter pub get)
 
       # ===== PERBAIKAN: Upgrade Gradle =====
       - name: Upgrade Gradle wrapper & AGP
