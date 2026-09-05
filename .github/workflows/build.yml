@@ -151,30 +151,21 @@ jobs:
             # BUAT BACKUP
             cp android/app/build.gradle.kts android/app/build.gradle.kts.bak
             
-            # ==== PERBAIKAN 1: Hapus semua double parentheses ====
+            # ==== FIX 1: Pastikan versionCode & versionName menggunakan PARENTHESES ====
+            # flutter.versionCode dan flutter.versionName adalah FUNGSI yang harus dipanggil
+            sed -i 's/versionCode = flutter\.versionCode/versionCode = flutter.versionCode()/g' android/app/build.gradle.kts
+            sed -i 's/versionName = flutter\.versionName/versionName = flutter.versionName()/g' android/app/build.gradle.kts
+            
+            # ==== FIX 2: Bersihkan double parentheses ====
             sed -i 's/flutter\.versionCode()()/flutter.versionCode()/g' android/app/build.gradle.kts
             sed -i 's/flutter\.versionName()()/flutter.versionName()/g' android/app/build.gradle.kts
             
-            # ==== PERBAIKAN 2: Fix versionCode dengan cara yang benar ====
-            # Cari baris versionCode = flutter.versionCode atau versionCode = flutter.versionCode()
-            # Ubah menjadi versionCode = flutter.versionCode (tanpa parentheses, karena di Kotlin DSL flutter.versionCode adalah properti)
-            sed -i 's/versionCode = flutter\.versionCode()/versionCode = flutter.versionCode/g' android/app/build.gradle.kts
-            sed -i 's/versionName = flutter\.versionName()/versionName = flutter.versionName/g' android/app/build.gradle.kts
-            
-            # ==== PERBAIKAN 3: Jika masih ada yang salah, gunakan pendekatan alternatif ====
-            # Cek apakah masih ada error dengan mencari pola yang salah
-            if grep -q "versionCode = flutter\.versionCode()" android/app/build.gradle.kts; then
-              echo "⚠️ Masih ada error, menggunakan pendekatan alternatif..."
-              # Hapus baris yang bermasalah dan tulis ulang
-              sed -i '/versionCode = flutter\.versionCode()/d' android/app/build.gradle.kts
-              sed -i '/versionName = flutter\.versionName()/d' android/app/build.gradle.kts
-              # Tambahkan baris yang benar di defaultConfig
-              sed -i '/defaultConfig {/a\        versionCode = flutter.versionCode' android/app/build.gradle.kts
-              sed -i '/defaultConfig {/a\        versionName = flutter.versionName' android/app/build.gradle.kts
-            fi
+            # ==== FIX 3: Hapus tanda kurung ganda lainnya ====
+            sed -i 's/flutter\.versionCode())/flutter.versionCode()/g' android/app/build.gradle.kts
+            sed -i 's/flutter\.versionName())/flutter.versionName()/g' android/app/build.gradle.kts
             
             echo "📄 android/app/build.gradle.kts setelah perbaikan:"
-            grep -A 10 "defaultConfig" android/app/build.gradle.kts || cat android/app/build.gradle.kts | head -30
+            grep -A 5 "defaultConfig" android/app/build.gradle.kts || cat android/app/build.gradle.kts | head -30
           fi
           
           # ============================================================
