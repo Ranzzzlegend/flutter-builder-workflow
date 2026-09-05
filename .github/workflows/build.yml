@@ -70,7 +70,9 @@ jobs:
           unzip project.zip -d project
           ls -la project/
 
-      # ===== PERBAIKAN: Fix pubspec.yaml =====
+      # ================================================================
+      # PERBAIKAN 1: Fix pubspec.yaml (dependency overrides)
+      # ================================================================
       - name: Fix pubspec.yaml (AUTO-FIX)
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
         working-directory: project
@@ -78,22 +80,22 @@ jobs:
           echo "🔧 MEMPERBAIKI pubspec.yaml..."
           cp pubspec.yaml pubspec.yaml.bak
           
+          # Hapus dependency_overrides yang mungkin ada sebelumnya
           sed -i '/dependency_overrides:/d' pubspec.yaml
-          sed -i 's/dependency_overrides://g' pubspec.yaml
-          sed -i '/^$/d' pubspec.yaml
+          sed -i '/^  flutter_lints:/d' pubspec.yaml
+          sed -i '/^  font_awesome_flutter:/d' pubspec.yaml
+          sed -i '/^  package_info_plus:/d' pubspec.yaml
+          sed -i '/^  share_plus:/d' pubspec.yaml
+          sed -i '/^  web:/d' pubspec.yaml
+          sed -i '/^  youtube_player_flutter:/d' pubspec.yaml
+          sed -i '/^  flutter_inappwebview:/d' pubspec.yaml
+          sed -i '/^  intl:/d' pubspec.yaml
+          sed -i '/^  http:/d' pubspec.yaml
+          sed -i '/^  path_provider:/d' pubspec.yaml
+          sed -i '/^  shared_preferences:/d' pubspec.yaml
+          sed -i '/^  sqflite:/d' pubspec.yaml
           
-          sed -i 's|flutter_lints:.*|flutter_lints: ^4.0.0|g' pubspec.yaml
-          sed -i 's|font_awesome_flutter:.*|font_awesome_flutter: ^10.6.0|g' pubspec.yaml
-          sed -i 's|package_info_plus:.*|package_info_plus: ^5.0.0|g' pubspec.yaml
-          sed -i 's|share_plus:.*|share_plus: ^10.0.0|g' pubspec.yaml
-          
-          if grep -q "youtube_player_flutter" pubspec.yaml; then
-            sed -i 's|youtube_player_flutter:.*|youtube_player_flutter: ^8.1.0|g' pubspec.yaml
-          fi
-          if grep -q "flutter_inappwebview" pubspec.yaml; then
-            sed -i 's|flutter_inappwebview:.*|flutter_inappwebview: ^5.7.0|g' pubspec.yaml
-          fi
-          
+          # Tambahkan dependency_overrides dengan versi stabil
           echo "" >> pubspec.yaml
           echo "dependency_overrides:" >> pubspec.yaml
           echo "  flutter_lints: ^4.0.0" >> pubspec.yaml
@@ -101,14 +103,17 @@ jobs:
           echo "  package_info_plus: ^5.0.0" >> pubspec.yaml
           echo "  share_plus: ^10.0.0" >> pubspec.yaml
           echo "  web: ^0.5.0" >> pubspec.yaml
-          if grep -q "youtube_player_flutter" pubspec.yaml; then
-            echo "  youtube_player_flutter: ^8.1.0" >> pubspec.yaml
-          fi
-          if grep -q "flutter_inappwebview" pubspec.yaml; then
-            echo "  flutter_inappwebview: ^5.7.0" >> pubspec.yaml
-          fi
+          echo "  flutter_inappwebview: ^5.7.0" >> pubspec.yaml
+          echo "  youtube_player_flutter: ^8.1.0" >> pubspec.yaml
+          echo "  intl: ^0.19.0" >> pubspec.yaml
+          echo "  http: ^1.2.2" >> pubspec.yaml
+          echo "  path_provider: ^2.1.3" >> pubspec.yaml
+          echo "  shared_preferences: ^2.2.3" >> pubspec.yaml
+          echo "  sqflite: ^2.3.3" >> pubspec.yaml
 
-      # ===== PERBAIKAN: Auto-fix source code =====
+      # ================================================================
+      # PERBAIKAN 2: Auto-fix Dart source code (FontAwesomeIcons)
+      # ================================================================
       - name: Auto-fix Dart source code errors
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
         working-directory: project
@@ -134,9 +139,9 @@ jobs:
           done
 
       # ================================================================
-      # ===== PERBAIKAN: Fix build.gradle.kts dengan CARA BENAR =====
+      # PERBAIKAN 3: Fix build.gradle.kts (KOTLIN DSL - TAMBAHKAN KURUNG)
       # ================================================================
-      - name: Fix build.gradle.kts (FIX KOTLIN DSL - CORRECT)
+      - name: Fix build.gradle.kts (FIX KOTLIN DSL - ADD PARENTHESES)
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
         working-directory: project
         run: |
@@ -147,38 +152,43 @@ jobs:
           # ============================================================
           if [ -f "android/app/build.gradle.kts" ]; then
             echo "📦 Memperbaiki android/app/build.gradle.kts..."
-            
-            # BUAT BACKUP
             cp android/app/build.gradle.kts android/app/build.gradle.kts.bak
             
-            # ==== PERBAIKAN 1: Hapus semua double parentheses ====
+            # Tampilkan isi sebelum perbaikan (debug)
+            echo "📄 android/app/build.gradle.kts SEBELUM perbaikan:"
+            grep -A 10 "defaultConfig" android/app/build.gradle.kts || cat android/app/build.gradle.kts | head -30
+            
+            # --- PERBAIKAN UTAMA: ganti semua flutter.versionCode menjadi flutter.versionCode() ---
+            # Gunakan sed dengan batas kata (\b) untuk menghindari penggantian sebagian
+            sed -i 's/flutter\.versionCode\b/flutter.versionCode()/g' android/app/build.gradle.kts
+            sed -i 's/flutter\.versionName\b/flutter.versionName()/g' android/app/build.gradle.kts
+            
+            # Hapus kemungkinan kurung ganda yang terbentuk (misal versionCode()())
             sed -i 's/flutter\.versionCode()()/flutter.versionCode()/g' android/app/build.gradle.kts
             sed -i 's/flutter\.versionName()()/flutter.versionName()/g' android/app/build.gradle.kts
             
-            # ==== PERBAIKAN 2: Fix versionCode dengan cara yang benar ====
-            # Cari baris versionCode = flutter.versionCode atau versionCode = flutter.versionCode()
-            # Ubah menjadi versionCode = flutter.versionCode (tanpa parentheses, karena di Kotlin DSL flutter.versionCode adalah properti)
-            sed -i 's/versionCode = flutter\.versionCode()/versionCode = flutter.versionCode/g' android/app/build.gradle.kts
-            sed -i 's/versionName = flutter\.versionName()/versionName = flutter.versionName/g' android/app/build.gradle.kts
+            # Jika masih ada baris yang menggunakan versionCode = flutter.versionCode (tanpa kurung) 
+            # tapi tidak tertangkap karena spasi, kita tambahkan perbaikan manual:
+            sed -i 's/versionCode = flutter\.versionCode\b/versionCode = flutter.versionCode()/g' android/app/build.gradle.kts
+            sed -i 's/versionName = flutter\.versionName\b/versionName = flutter.versionName()/g' android/app/build.gradle.kts
             
-            # ==== PERBAIKAN 3: Jika masih ada yang salah, gunakan pendekatan alternatif ====
-            # Cek apakah masih ada error dengan mencari pola yang salah
-            if grep -q "versionCode = flutter\.versionCode()" android/app/build.gradle.kts; then
-              echo "⚠️ Masih ada error, menggunakan pendekatan alternatif..."
-              # Hapus baris yang bermasalah dan tulis ulang
-              sed -i '/versionCode = flutter\.versionCode()/d' android/app/build.gradle.kts
-              sed -i '/versionName = flutter\.versionName()/d' android/app/build.gradle.kts
-              # Tambahkan baris yang benar di defaultConfig
-              sed -i '/defaultConfig {/a\        versionCode = flutter.versionCode' android/app/build.gradle.kts
-              sed -i '/defaultConfig {/a\        versionName = flutter.versionName' android/app/build.gradle.kts
-            fi
+            # --- PERBAIKAN ALTERNATIF: jika masih error, gunakan localProperties ---
+            # Cek apakah masih ada sintaks yang salah dengan mencoba kompilasi ringan
+            # Kita tidak bisa kompilasi di sini, tapi kita bisa tambahkan fallback dengan menimpa defaultConfig
+            # Kita tambahkan blok kode yang membaca localProperties jika diperlukan.
+            # Namun kita akan memasukkan kode standar Flutter Kotlin DSL di atas file.
+            # Kita akan tambahkan di awal file:
+            # val localProperties = Properties() ...
+            # Lalu di defaultConfig gunakan versionCode = flutterVersionCode.toInt()
+            # Tapi ini radikal, jadi kita hanya lakukan jika metode kurung gagal.
             
-            echo "📄 android/app/build.gradle.kts setelah perbaikan:"
+            # Tampilkan isi setelah perbaikan
+            echo "📄 android/app/build.gradle.kts SETELAH perbaikan:"
             grep -A 10 "defaultConfig" android/app/build.gradle.kts || cat android/app/build.gradle.kts | head -30
           fi
           
           # ============================================================
-          # Fix android/build.gradle.kts
+          # Fix android/build.gradle.kts (Gradle plugin version)
           # ============================================================
           if [ -f "android/build.gradle.kts" ]; then
             echo "📦 Memperbaiki android/build.gradle.kts..."
@@ -186,16 +196,7 @@ jobs:
           fi
 
       # ================================================================
-      # ===== Get dependencies =====
-      # ================================================================
-      - name: Get Flutter dependencies
-        if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
-        working-directory: project
-        run: |
-          flutter pub get || (rm -f pubspec.lock && flutter pub get)
-
-      # ================================================================
-      # ===== Upgrade Gradle =====
+      # PERBAIKAN 4: Upgrade Gradle wrapper
       # ================================================================
       - name: Upgrade Gradle wrapper
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
@@ -209,7 +210,16 @@ jobs:
           fi
 
       # ================================================================
-      # ===== Build APK =====
+      # PERBAIKAN 5: Get dependencies (dengan retry)
+      # ================================================================
+      - name: Get Flutter dependencies
+        if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
+        working-directory: project
+        run: |
+          flutter pub get --no-example || (rm -f pubspec.lock && flutter pub get --no-example)
+
+      # ================================================================
+      # PERBAIKAN 6: Build APK
       # ================================================================
       - name: Build APK (Release)
         if: github.event.inputs.build_type == 'release' && github.event.inputs.source_zip_url != ''
@@ -217,6 +227,21 @@ jobs:
         run: |
           flutter build apk --release --target-platform android-arm,android-arm64 --android-skip-build-dependency-validation
 
+      - name: Build APK (Debug)
+        if: github.event.inputs.build_type == 'debug' && github.event.inputs.source_zip_url != ''
+        working-directory: project
+        run: |
+          flutter build apk --debug --target-platform android-arm,android-arm64 --android-skip-build-dependency-validation
+
+      - name: Build APK (Generic)
+        if: github.event.inputs.build_type == 'generic' && github.event.inputs.source_zip_url != ''
+        working-directory: project
+        run: |
+          flutter build apk --release --target-platform android-arm,android-arm64 --android-skip-build-dependency-validation
+
+      # ================================================================
+      # Upload artifact APK
+      # ================================================================
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
