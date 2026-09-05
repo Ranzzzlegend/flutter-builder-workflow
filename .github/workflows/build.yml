@@ -44,11 +44,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Flutter
+      - name: Setup Flutter (Latest Stable)
         uses: subosito/flutter-action@v2
         with:
           channel: stable
-          flutter-version: 3.22.0
+          flutter-version: 3.27.4
           cache: true
 
       - name: Flutter doctor
@@ -70,43 +70,77 @@ jobs:
           unzip project.zip -d project
           ls -la project/
 
-      # ===== PERBAIKAN: Fix pubspec.yaml =====
-      - name: Fix pubspec.yaml (AUTO-FIX)
+      # ===== PERBAIKAN UTAMA: Upgrade & Fix pubspec.yaml =====
+      - name: Fix pubspec.yaml (AUTO-FIX - CRITICAL)
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
         working-directory: project
         run: |
           echo "🔧 MEMPERBAIKI pubspec.yaml..."
           cp pubspec.yaml pubspec.yaml.bak
           
+          # Hapus dependency_overrides yang lama
           sed -i '/dependency_overrides:/d' pubspec.yaml
-          sed -i 's/dependency_overrides://g' pubspec.yaml
-          sed -i '/^$/d' pubspec.yaml
           
-          sed -i 's|flutter_lints:.*|flutter_lints: ^4.0.0|g' pubspec.yaml
-          sed -i 's|font_awesome_flutter:.*|font_awesome_flutter: ^10.6.0|g' pubspec.yaml
-          sed -i 's|package_info_plus:.*|package_info_plus: ^5.0.0|g' pubspec.yaml
-          sed -i 's|share_plus:.*|share_plus: ^10.0.0|g' pubspec.yaml
+          # Upgrade semua dependency ke versi terbaru
+          sed -i 's|flutter_lints:.*|flutter_lints: ^5.0.0|g' pubspec.yaml
+          sed -i 's|font_awesome_flutter:.*|font_awesome_flutter: ^10.7.0|g' pubspec.yaml
+          sed -i 's|package_info_plus:.*|package_info_plus: ^8.0.0|g' pubspec.yaml
+          sed -i 's|share_plus:.*|share_plus: ^10.1.0|g' pubspec.yaml
+          sed -i 's|cupertino_icons:.*|cupertino_icons: ^1.0.8|g' pubspec.yaml
+          sed -i 's|http:.*|http: ^1.2.2|g' pubspec.yaml
+          sed -i 's|dio:.*|dio: ^5.7.0|g' pubspec.yaml
           
+          # Fix youtube_player_flutter
           if grep -q "youtube_player_flutter" pubspec.yaml; then
-            sed -i 's|youtube_player_flutter:.*|youtube_player_flutter: ^8.1.0|g' pubspec.yaml
-          fi
-          if grep -q "flutter_inappwebview" pubspec.yaml; then
-            sed -i 's|flutter_inappwebview:.*|flutter_inappwebview: ^5.7.0|g' pubspec.yaml
+            sed -i 's|youtube_player_flutter:.*|youtube_player_flutter: ^9.0.0|g' pubspec.yaml
           fi
           
+          # Fix flutter_inappwebview - UPGRADE KE VERSI BARU
+          if grep -q "flutter_inappwebview" pubspec.yaml; then
+            sed -i 's|flutter_inappwebview:.*|flutter_inappwebview: ^6.1.5|g' pubspec.yaml
+          fi
+          
+          # Tambahkan dependency_overrides untuk memaksa versi
           echo "" >> pubspec.yaml
           echo "dependency_overrides:" >> pubspec.yaml
-          echo "  flutter_lints: ^4.0.0" >> pubspec.yaml
-          echo "  font_awesome_flutter: ^10.6.0" >> pubspec.yaml
-          echo "  package_info_plus: ^5.0.0" >> pubspec.yaml
-          echo "  share_plus: ^10.0.0" >> pubspec.yaml
-          echo "  web: ^0.5.0" >> pubspec.yaml
+          echo "  flutter_lints: ^5.0.0" >> pubspec.yaml
+          echo "  font_awesome_flutter: ^10.7.0" >> pubspec.yaml
+          echo "  package_info_plus: ^8.0.0" >> pubspec.yaml
+          echo "  share_plus: ^10.1.0" >> pubspec.yaml
+          echo "  cupertino_icons: ^1.0.8" >> pubspec.yaml
+          echo "  http: ^1.2.2" >> pubspec.yaml
+          echo "  dio: ^5.7.0" >> pubspec.yaml
+          echo "  web: ^1.0.0" >> pubspec.yaml
+          
           if grep -q "youtube_player_flutter" pubspec.yaml; then
-            echo "  youtube_player_flutter: ^8.1.0" >> pubspec.yaml
+            echo "  youtube_player_flutter: ^9.0.0" >> pubspec.yaml
           fi
+          
           if grep -q "flutter_inappwebview" pubspec.yaml; then
-            echo "  flutter_inappwebview: ^5.7.0" >> pubspec.yaml
+            echo "  flutter_inappwebview: ^6.1.5" >> pubspec.yaml
           fi
+          
+          # Tampilkan hasil
+          echo "📄 pubspec.yaml setelah perbaikan:"
+          cat pubspec.yaml
+
+      # ===== PERBAIKAN: Upgrade SDK Version di pubspec.yaml =====
+      - name: Fix SDK Version Constraint
+        if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
+        working-directory: project
+        run: |
+          echo "🔧 MEMPERBAIKI SDK VERSION..."
+          
+          # Ubah environment SDK constraint
+          sed -i 's/sdk:.*/sdk: ">=3.0.0 <4.0.0"/g' pubspec.yaml
+          
+          # Hapus baris environment yang mungkin bermasalah
+          sed -i '/^environment:/d' pubspec.yaml
+          sed -i '/^  sdk:/d' pubspec.yaml
+          sed -i '/^  flutter:/d' pubspec.yaml
+          
+          # Tambahkan environment yang benar di awal file
+          sed -i '1i environment:\n  sdk: ">=3.0.0 <4.0.0"\n  flutter: ">=3.0.0"' pubspec.yaml
 
       # ===== PERBAIKAN: Auto-fix source code =====
       - name: Auto-fix Dart source code errors
@@ -134,7 +168,7 @@ jobs:
           done
 
       # ================================================================
-      # ===== PERBAIKAN: Fix build.gradle.kts dengan CARA BENAR =====
+      # ===== FIX build.gradle.kts - CORRECT =====
       # ================================================================
       - name: Fix build.gradle.kts (FIX KOTLIN DSL - CORRECT)
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
@@ -148,21 +182,15 @@ jobs:
           if [ -f "android/app/build.gradle.kts" ]; then
             echo "📦 Memperbaiki android/app/build.gradle.kts..."
             
-            # BUAT BACKUP
             cp android/app/build.gradle.kts android/app/build.gradle.kts.bak
             
-            # ==== FIX 1: Pastikan versionCode & versionName menggunakan PARENTHESES ====
-            # flutter.versionCode dan flutter.versionName adalah FUNGSI yang harus dipanggil
+            # FIX: Pastikan versionCode & versionName menggunakan PARENTHESES
             sed -i 's/versionCode = flutter\.versionCode/versionCode = flutter.versionCode()/g' android/app/build.gradle.kts
             sed -i 's/versionName = flutter\.versionName/versionName = flutter.versionName()/g' android/app/build.gradle.kts
             
-            # ==== FIX 2: Bersihkan double parentheses ====
+            # Bersihkan double parentheses
             sed -i 's/flutter\.versionCode()()/flutter.versionCode()/g' android/app/build.gradle.kts
             sed -i 's/flutter\.versionName()()/flutter.versionName()/g' android/app/build.gradle.kts
-            
-            # ==== FIX 3: Hapus tanda kurung ganda lainnya ====
-            sed -i 's/flutter\.versionCode())/flutter.versionCode()/g' android/app/build.gradle.kts
-            sed -i 's/flutter\.versionName())/flutter.versionName()/g' android/app/build.gradle.kts
             
             echo "📄 android/app/build.gradle.kts setelah perbaikan:"
             grep -A 5 "defaultConfig" android/app/build.gradle.kts || cat android/app/build.gradle.kts | head -30
@@ -173,7 +201,37 @@ jobs:
           # ============================================================
           if [ -f "android/build.gradle.kts" ]; then
             echo "📦 Memperbaiki android/build.gradle.kts..."
-            sed -i 's/com.android.tools.build:gradle:[0-9.]*/com.android.tools.build:gradle:8.5.2/g' android/build.gradle.kts
+            sed -i 's/com.android.tools.build:gradle:[0-9.]*/com.android.tools.build:gradle:8.7.0/g' android/build.gradle.kts
+          fi
+
+      # ===== FIX flutter_inappwebview Namespace =====
+      - name: Fix flutter_inappwebview Namespace
+        if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
+        working-directory: project
+        run: |
+          echo "🔧 FIXING flutter_inappwebview Namespace..."
+          
+          # Cari file build.gradle dari plugin inappwebview di pub cache
+          INAPPWEBVIEW_PATH=$(find /home/runner/.pub-cache -path "*/flutter_inappwebview-*/android/build.gradle" 2>/dev/null | head -1)
+          
+          if [ -n "$INAPPWEBVIEW_PATH" ]; then
+            echo "📦 Menemukan: $INAPPWEBVIEW_PATH"
+            
+            # Backup
+            cp "$INAPPWEBVIEW_PATH" "$INAPPWEBVIEW_PATH.bak"
+            
+            # Tambahkan namespace jika belum ada
+            if ! grep -q "namespace" "$INAPPWEBVIEW_PATH"; then
+              echo "namespace \"com.pichillilorenzo.flutter_inappwebview\"" >> "$INAPPWEBVIEW_PATH"
+              echo "✅ Namespace ditambahkan!"
+            else
+              echo "ℹ️ Namespace sudah ada, melewati..."
+            fi
+            
+            # Tampilkan hasil
+            cat "$INAPPWEBVIEW_PATH"
+          else
+            echo "⚠️ File build.gradle dari flutter_inappwebview tidak ditemukan"
           fi
 
       # ================================================================
@@ -193,7 +251,7 @@ jobs:
         working-directory: project
         run: |
           if [ -f "android/gradle/wrapper/gradle-wrapper.properties" ]; then
-            sed -i 's|distributionUrl=.*|distributionUrl=https\://services.gradle.org/distributions/gradle-8.11.1-all.zip|g' android/gradle/wrapper/gradle-wrapper.properties
+            sed -i 's|distributionUrl=.*|distributionUrl=https\://services.gradle.org/distributions/gradle-8.9-all.zip|g' android/gradle/wrapper/gradle-wrapper.properties
           fi
           if [ -f "android/gradlew" ]; then
             chmod +x android/gradlew
