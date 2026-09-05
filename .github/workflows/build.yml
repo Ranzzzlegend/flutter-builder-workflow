@@ -139,7 +139,8 @@ jobs:
           done
 
       # ================================================================
-      # PERBAIKAN 3: Fix build.gradle.kts (KOTLIN DSL - TANPA KURUNG, PAKAI LOCALPROPERTIES)
+      # PERBAIKAN 3: Fix build.gradle.kts (KOTLIN DSL - PAKAI LOCALPROPERTIES)
+      # Menggunakan printf per baris untuk menghindari error heredoc
       # ================================================================
       - name: Fix build.gradle.kts (FIX KOTLIN DSL - USE LOCALPROPERTIES)
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
@@ -154,74 +155,65 @@ jobs:
             echo "📦 Memperbaiki android/app/build.gradle.kts..."
             cp android/app/build.gradle.kts android/app/build.gradle.kts.bak
             
-            # Tampilkan isi sebelum perbaikan (debug)
             echo "📄 android/app/build.gradle.kts SEBELUM perbaikan:"
             grep -A 10 "defaultConfig" android/app/build.gradle.kts || cat android/app/build.gradle.kts | head -30
             
-            # --- STRATEGI: Ganti bagian defaultConfig dengan kode yang membaca localProperties ---
-            # Kita akan mencari baris defaultConfig { ... } dan mengganti isinya.
-            # Lebih aman: hapus seluruh blok defaultConfig yang lama dan tulis ulang dengan yang baru.
-            # Kita akan menggunakan sed untuk menghapus baris dari "defaultConfig {" sampai "}" yang sesuai.
-            # Namun ini rumit dengan sed. Lebih mudah: kita tambahkan kode di atas file dan komentari yang lama.
-            
-            # Buat file baru dengan pendekatan localProperties
-            cat > android/app/build.gradle.kts.new << 'EOF'
-            import java.util.Properties
-            
-            plugins {
-                id("com.android.application")
-                id("kotlin-android")
-                id("dev.flutter.flutter-gradle-plugin")
-            }
-            
-            val localProperties = Properties()
-            val localPropertiesFile = rootProject.file("local.properties")
-            if (localPropertiesFile.exists()) {
-                localProperties.load(localPropertiesFile.inputStream())
-            }
-            
-            val flutterVersionCode = localProperties.getProperty("flutter.versionCode")?.toInt() ?: 1
-            val flutterVersionName = localProperties.getProperty("flutter.versionName") ?: "1.0"
-            
-            android {
-                namespace = "com.example.app"
-                compileSdk = 34
-            
-                compileOptions {
-                    sourceCompatibility = JavaVersion.VERSION_1_8
-                    targetCompatibility = JavaVersion.VERSION_1_8
-                }
-            
-                kotlinOptions {
-                    jvmTarget = "1.8"
-                }
-            
-                sourceSets {
-                    main.java.srcDirs += "src/main/kotlin"
-                }
-            
-                defaultConfig {
-                    applicationId = "com.example.app"
-                    minSdk = 21
-                    targetSdk = 34
-                    versionCode = flutterVersionCode
-                    versionName = flutterVersionName
-                }
-            
-                buildTypes {
-                    release {
-                        signingConfig = signingConfigs.getByName("debug")
-                    }
-                }
-            }
-            
-            flutter {
-                source = "../.."
-            }
-            EOF
-            
-            # Ganti file lama dengan yang baru
-            mv android/app/build.gradle.kts.new android/app/build.gradle.kts
+            # Tulis ulang file dengan konten yang menggunakan localProperties
+            # Menggunakan printf untuk menghindari masalah heredoc
+            printf '%s\n' \
+              'import java.util.Properties' \
+              '' \
+              'plugins {' \
+              '    id("com.android.application")' \
+              '    id("kotlin-android")' \
+              '    id("dev.flutter.flutter-gradle-plugin")' \
+              '}' \
+              '' \
+              'val localProperties = Properties()' \
+              'val localPropertiesFile = rootProject.file("local.properties")' \
+              'if (localPropertiesFile.exists()) {' \
+              '    localProperties.load(localPropertiesFile.inputStream())' \
+              '}' \
+              '' \
+              'val flutterVersionCode = localProperties.getProperty("flutter.versionCode")?.toInt() ?: 1' \
+              'val flutterVersionName = localProperties.getProperty("flutter.versionName") ?: "1.0"' \
+              '' \
+              'android {' \
+              '    namespace = "com.example.app"' \
+              '    compileSdk = 34' \
+              '' \
+              '    compileOptions {' \
+              '        sourceCompatibility = JavaVersion.VERSION_1_8' \
+              '        targetCompatibility = JavaVersion.VERSION_1_8' \
+              '    }' \
+              '' \
+              '    kotlinOptions {' \
+              '        jvmTarget = "1.8"' \
+              '    }' \
+              '' \
+              '    sourceSets {' \
+              '        main.java.srcDirs += "src/main/kotlin"' \
+              '    }' \
+              '' \
+              '    defaultConfig {' \
+              '        applicationId = "com.example.app"' \
+              '        minSdk = 21' \
+              '        targetSdk = 34' \
+              '        versionCode = flutterVersionCode' \
+              '        versionName = flutterVersionName' \
+              '    }' \
+              '' \
+              '    buildTypes {' \
+              '        release {' \
+              '            signingConfig = signingConfigs.getByName("debug")' \
+              '        }' \
+              '    }' \
+              '}' \
+              '' \
+              'flutter {' \
+              '    source = "../.."' \
+              '}' \
+              > android/app/build.gradle.kts
             
             echo "📄 android/app/build.gradle.kts SETELAH perbaikan:"
             cat android/app/build.gradle.kts | head -50
