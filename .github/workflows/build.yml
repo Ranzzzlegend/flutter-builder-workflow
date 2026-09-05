@@ -44,7 +44,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ===== PERBAIKAN: Gunakan Flutter 3.47.2 (SDK 3.5.0+) =====
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -71,50 +70,29 @@ jobs:
           unzip project.zip -d project
           ls -la project/
 
-      # ===== PERBAIKAN: Fix pubspec.yaml - downgrade flutter_lints =====
       - name: Fix pubspec.yaml (AUTO-FIX)
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
         working-directory: project
         run: |
           echo "🔧 MEMPERBAIKI pubspec.yaml..."
-          
-          # Backup
           cp pubspec.yaml pubspec.yaml.bak
-          
-          # 1. Hapus dependency_overrides yang salah
           sed -i '/dependency_overrides:/d' pubspec.yaml
           sed -i 's/dependency_overrides://g' pubspec.yaml
-          
-          # 2. Hapus baris kosong ganda
           sed -i '/^$/d' pubspec.yaml
-          
-          # 3. Downgrade flutter_lints ke versi kompatibel
           sed -i 's|flutter_lints:.*|flutter_lints: ^4.0.0|g' pubspec.yaml
-          sed -i 's|flutter_lints:^5.0.0|flutter_lints: ^4.0.0|g' pubspec.yaml
-          
-          # 4. Gunakan font_awesome_flutter versi 10.6.0 (kompatibel)
           sed -i 's|font_awesome_flutter:.*|font_awesome_flutter: ^10.6.0|g' pubspec.yaml
-          
-          # 5. Tambahkan dependency_overrides dengan benar
           echo "" >> pubspec.yaml
           echo "dependency_overrides:" >> pubspec.yaml
           echo "  flutter_lints: ^4.0.0" >> pubspec.yaml
           echo "  font_awesome_flutter: ^10.6.0" >> pubspec.yaml
-          
-          echo "📄 pubspec.yaml setelah perbaikan:"
-          cat pubspec.yaml
 
-      # ===== PERBAIKAN: Auto-fix source code errors =====
       - name: Auto-fix Dart source code errors
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
         working-directory: project
         run: |
-          echo "🔧 MEMPERBAIKI SOURCE CODE DART..."
-          
-          # Fix semua file yang menggunakan FontAwesomeIcons
+          echo "🔧 MEMPERBAIKI SOURCE CODE..."
           for file in lib/*.dart; do
             if [ -f "$file" ]; then
-              echo "📦 Memperbaiki $file..."
               sed -i 's/FontAwesomeIcons\.userEdit/Icons.edit/g' "$file"
               sed -i 's/FontAwesomeIcons\.calendarPlus/Icons.calendar_today/g' "$file"
               sed -i 's/FontAwesomeIcons\.calendarDay/Icons.calendar_month/g' "$file"
@@ -129,63 +107,32 @@ jobs:
               sed -i 's/FontAwesomeIcons\.tiktok/Icons.music_note/g' "$file"
               sed -i 's/FontAwesomeIcons\.rocket/Icons.rocket_launch/g' "$file"
               sed -i 's/FontAwesomeIcons\.userAstronaut/Icons.person/g' "$file"
-              sed -i 's/FontAwesomeIcons\.calendarMonth/Icons.calendar_month/g' "$file"
-              sed -i 's/FontAwesomeIcons\.calendarToday/Icons.calendar_today/g' "$file"
             fi
           done
-          
-          echo "✅ Semua source code telah diperbaiki!"
 
-      # ===== PERBAIKAN: Get dependencies dengan fallback =====
       - name: Get Flutter dependencies
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
         working-directory: project
         run: |
           flutter pub get || \
-          (echo "⚠️ Gagal pub get, mencoba dengan force..." && \
-           flutter pub get --no-example) || \
-          (echo "⚠️ Masih gagal, mencoba menghapus pubspec.lock..." && \
-           rm -f pubspec.lock && \
-           flutter pub get) || \
-          (echo "⚠️ Terakhir, mencoba menggunakan Flutter 3.47.2..." && \
-           flutter upgrade && \
-           flutter pub get)
+          (rm -f pubspec.lock && flutter pub get)
 
-      # ===== PERBAIKAN: Upgrade Gradle =====
       - name: Upgrade Gradle wrapper & AGP
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
         working-directory: project
         run: |
           if [ -f "android/gradle/wrapper/gradle-wrapper.properties" ]; then
-            echo "📦 Mengupgrade Gradle ke versi 8.11.1..."
             sed -i 's|distributionUrl=.*|distributionUrl=https\://services.gradle.org/distributions/gradle-8.11.1-all.zip|g' android/gradle/wrapper/gradle-wrapper.properties
-            cat android/gradle/wrapper/gradle-wrapper.properties
           fi
-
           if [ -f "android/build.gradle" ]; then
-            echo "📦 Mengupdate AGP ke 8.5.2..."
             sed -i 's|com.android.tools.build:gradle:[0-9.]*|com.android.tools.build:gradle:8.5.2|g' android/build.gradle
           fi
-          if [ -f "android/build.gradle.kts" ]; then
-            sed -i 's|com.android.tools.build:gradle:[0-9.]*|com.android.tools.build:gradle:8.5.2|g' android/build.gradle.kts
-          fi
-
           if [ -f "android/app/build.gradle" ]; then
             grep -q "namespace" android/app/build.gradle || sed -i '/android {/a\    namespace "com.example.app"' android/app/build.gradle
           fi
-          if [ -f "android/app/build.gradle.kts" ]; then
-            grep -q "namespace" android/app/build.gradle.kts || sed -i '/android {/a\    namespace("com.example.app")' android/app/build.gradle.kts
-          fi
-
           if [ -f "android/gradlew" ]; then
             chmod +x android/gradlew
           fi
-
-      - name: Build APK (Debug)
-        if: github.event.inputs.build_type == 'debug' && github.event.inputs.source_zip_url != ''
-        working-directory: project
-        run: |
-          flutter build apk --debug --target-platform android-arm,android-arm64 --android-skip-build-dependency-validation
 
       - name: Build APK (Release)
         if: github.event.inputs.build_type == 'release' && github.event.inputs.source_zip_url != ''
@@ -193,30 +140,12 @@ jobs:
         run: |
           flutter build apk --release --target-platform android-arm,android-arm64 --android-skip-build-dependency-validation
 
-      - name: Build APK (Generic)
-        if: github.event.inputs.build_type == 'generic' && github.event.inputs.source_zip_url != ''
-        working-directory: project
-        run: |
-          flutter build apk --release --target-platform android-arm,android-arm64 --android-skip-build-dependency-validation
-
-      - name: Web2APK Build
-        if: github.event.inputs.build_type == 'web2apk'
-        run: |
-          ./web2apk/web2apk \
-            --url "${{ github.event.inputs.url }}" \
-            --name "${{ github.event.inputs.app_name }}" \
-            --package "com.webapp.${{ github.event.inputs.app_name }}" \
-            --icon "${{ github.event.inputs.icon_url }}" \
-            --output webapp.apk
-        continue-on-error: true
-
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: built-apk
           path: |
             project/build/app/outputs/flutter-apk/*.apk
-            webapp.apk
           retention-days: 7
 
       - name: Cleanup
