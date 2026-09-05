@@ -139,13 +139,13 @@ jobs:
           done
 
       # ================================================================
-      # PERBAIKAN 3: Fix build.gradle.kts (KOTLIN DSL - TAMBAHKAN KURUNG)
+      # PERBAIKAN 3: Fix build.gradle.kts (KOTLIN DSL - TANPA KURUNG, PAKAI LOCALPROPERTIES)
       # ================================================================
-      - name: Fix build.gradle.kts (FIX KOTLIN DSL - ADD PARENTHESES)
+      - name: Fix build.gradle.kts (FIX KOTLIN DSL - USE LOCALPROPERTIES)
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
         working-directory: project
         run: |
-          echo "🔧 MEMPERBAIKI build.gradle.kts..."
+          echo "🔧 MEMPERBAIKI build.gradle.kts (PAKAI LOCALPROPERTIES)..."
           
           # ============================================================
           # Fix android/app/build.gradle.kts
@@ -158,33 +158,73 @@ jobs:
             echo "📄 android/app/build.gradle.kts SEBELUM perbaikan:"
             grep -A 10 "defaultConfig" android/app/build.gradle.kts || cat android/app/build.gradle.kts | head -30
             
-            # --- PERBAIKAN UTAMA: ganti semua flutter.versionCode menjadi flutter.versionCode() ---
-            # Gunakan sed dengan batas kata (\b) untuk menghindari penggantian sebagian
-            sed -i 's/flutter\.versionCode\b/flutter.versionCode()/g' android/app/build.gradle.kts
-            sed -i 's/flutter\.versionName\b/flutter.versionName()/g' android/app/build.gradle.kts
+            # --- STRATEGI: Ganti bagian defaultConfig dengan kode yang membaca localProperties ---
+            # Kita akan mencari baris defaultConfig { ... } dan mengganti isinya.
+            # Lebih aman: hapus seluruh blok defaultConfig yang lama dan tulis ulang dengan yang baru.
+            # Kita akan menggunakan sed untuk menghapus baris dari "defaultConfig {" sampai "}" yang sesuai.
+            # Namun ini rumit dengan sed. Lebih mudah: kita tambahkan kode di atas file dan komentari yang lama.
             
-            # Hapus kemungkinan kurung ganda yang terbentuk (misal versionCode()())
-            sed -i 's/flutter\.versionCode()()/flutter.versionCode()/g' android/app/build.gradle.kts
-            sed -i 's/flutter\.versionName()()/flutter.versionName()/g' android/app/build.gradle.kts
+            # Buat file baru dengan pendekatan localProperties
+            cat > android/app/build.gradle.kts.new << 'EOF'
+            import java.util.Properties
             
-            # Jika masih ada baris yang menggunakan versionCode = flutter.versionCode (tanpa kurung) 
-            # tapi tidak tertangkap karena spasi, kita tambahkan perbaikan manual:
-            sed -i 's/versionCode = flutter\.versionCode\b/versionCode = flutter.versionCode()/g' android/app/build.gradle.kts
-            sed -i 's/versionName = flutter\.versionName\b/versionName = flutter.versionName()/g' android/app/build.gradle.kts
+            plugins {
+                id("com.android.application")
+                id("kotlin-android")
+                id("dev.flutter.flutter-gradle-plugin")
+            }
             
-            # --- PERBAIKAN ALTERNATIF: jika masih error, gunakan localProperties ---
-            # Cek apakah masih ada sintaks yang salah dengan mencoba kompilasi ringan
-            # Kita tidak bisa kompilasi di sini, tapi kita bisa tambahkan fallback dengan menimpa defaultConfig
-            # Kita tambahkan blok kode yang membaca localProperties jika diperlukan.
-            # Namun kita akan memasukkan kode standar Flutter Kotlin DSL di atas file.
-            # Kita akan tambahkan di awal file:
-            # val localProperties = Properties() ...
-            # Lalu di defaultConfig gunakan versionCode = flutterVersionCode.toInt()
-            # Tapi ini radikal, jadi kita hanya lakukan jika metode kurung gagal.
+            val localProperties = Properties()
+            val localPropertiesFile = rootProject.file("local.properties")
+            if (localPropertiesFile.exists()) {
+                localProperties.load(localPropertiesFile.inputStream())
+            }
             
-            # Tampilkan isi setelah perbaikan
+            val flutterVersionCode = localProperties.getProperty("flutter.versionCode")?.toInt() ?: 1
+            val flutterVersionName = localProperties.getProperty("flutter.versionName") ?: "1.0"
+            
+            android {
+                namespace = "com.example.app"
+                compileSdk = 34
+            
+                compileOptions {
+                    sourceCompatibility = JavaVersion.VERSION_1_8
+                    targetCompatibility = JavaVersion.VERSION_1_8
+                }
+            
+                kotlinOptions {
+                    jvmTarget = "1.8"
+                }
+            
+                sourceSets {
+                    main.java.srcDirs += "src/main/kotlin"
+                }
+            
+                defaultConfig {
+                    applicationId = "com.example.app"
+                    minSdk = 21
+                    targetSdk = 34
+                    versionCode = flutterVersionCode
+                    versionName = flutterVersionName
+                }
+            
+                buildTypes {
+                    release {
+                        signingConfig = signingConfigs.getByName("debug")
+                    }
+                }
+            }
+            
+            flutter {
+                source = "../.."
+            }
+            EOF
+            
+            # Ganti file lama dengan yang baru
+            mv android/app/build.gradle.kts.new android/app/build.gradle.kts
+            
             echo "📄 android/app/build.gradle.kts SETELAH perbaikan:"
-            grep -A 10 "defaultConfig" android/app/build.gradle.kts || cat android/app/build.gradle.kts | head -30
+            cat android/app/build.gradle.kts | head -50
           fi
           
           # ============================================================
