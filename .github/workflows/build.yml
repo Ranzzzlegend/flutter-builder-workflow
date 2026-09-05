@@ -48,7 +48,7 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: stable
-          flutter-version: 3.22.0
+          flutter-version: 3.24.0
           cache: true
 
       - name: Flutter doctor
@@ -79,14 +79,31 @@ jobs:
           sed -i '/dependency_overrides:/d' pubspec.yaml
           sed -i 's/dependency_overrides://g' pubspec.yaml
           sed -i '/^$/d' pubspec.yaml
+          
+          # Fix flutter_lints
           sed -i 's|flutter_lints:.*|flutter_lints: ^4.0.0|g' pubspec.yaml
+          
+          # Fix font_awesome_flutter
           sed -i 's|font_awesome_flutter:.*|font_awesome_flutter: ^10.6.0|g' pubspec.yaml
+          
+          # Fix package_info_plus
           sed -i 's|package_info_plus:.*|package_info_plus: ^6.0.0|g' pubspec.yaml
+          
+          # Fix youtube_player_flutter (jika ada)
+          if grep -q "youtube_player_flutter" pubspec.yaml; then
+            echo "📦 Fix youtube_player_flutter ke versi 8.1.0 (kompatibel dengan SDK 3.4.0)"
+            sed -i 's|youtube_player_flutter:.*|youtube_player_flutter: ^8.1.0|g' pubspec.yaml
+          fi
+          
+          # Tambahkan dependency_overrides
           echo "" >> pubspec.yaml
           echo "dependency_overrides:" >> pubspec.yaml
           echo "  flutter_lints: ^4.0.0" >> pubspec.yaml
           echo "  font_awesome_flutter: ^10.6.0" >> pubspec.yaml
           echo "  package_info_plus: ^6.0.0" >> pubspec.yaml
+          if grep -q "youtube_player_flutter" pubspec.yaml; then
+            echo "  youtube_player_flutter: ^8.1.0" >> pubspec.yaml
+          fi
 
       - name: Auto-fix Dart source code errors
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
@@ -116,7 +133,11 @@ jobs:
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
         working-directory: project
         run: |
-          flutter pub get || (rm -f pubspec.lock && flutter pub get)
+          flutter pub get || (rm -f pubspec.lock && flutter pub get) || \
+          (echo "⚠️ Gagal pub get, mencoba dengan Flutter 3.22.0..." && \
+           flutter downgrade 3.22.0 && flutter pub get) || \
+          (echo "⚠️ Gagal semua, mencoba menghapus dependency_overrides..." && \
+           sed -i '/dependency_overrides:/,/^$/d' pubspec.yaml && flutter pub get)
 
       - name: Upgrade Gradle wrapper & AGP
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
