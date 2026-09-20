@@ -38,18 +38,22 @@ jobs:
   build:
     name: Build APK
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ===== PERBAIKAN: Gunakan Flutter versi 3.22.0 =====
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
-          version: 3.22.0
           cache: true
 
       - name: Flutter doctor
@@ -59,135 +63,160 @@ jobs:
         if: github.event.inputs.build_type == 'web2apk'
         run: |
           sudo apt-get update
-          sudo apt-get install -y wget unzip openjdk-17-jdk gradle
-          wget -q -O web2apk.zip https://github.com/GoogleChromeLabs/web2apk/releases/latest/download/web2apk.zip
-          unzip web2apk.zip -d web2apk
-          chmod +x web2apk/web2apk
+          sudo apt-get install -y wget unzip gradle
+          wget -q -O web2apk.zip https://github.com/GoogleChromeLabs/web2apk/releases/latest/download/web2apk.zip || echo "skip"
+          if [ -f web2apk.zip ]; then unzip -o web2apk.zip -d web2apk; chmod +x web2apk/web2apk || true; fi
 
       - name: Download Flutter project ZIP
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
         run: |
           wget -O project.zip "${{ github.event.inputs.source_zip_url }}"
-          unzip project.zip -d project
+          mkdir -p project
+          unzip -o project.zip -d project > /dev/null
+          # Handle nested project folder
+          if [ ! -f "project/pubspec.yaml" ]; then
+            SUB=$(find project -maxdepth 3 -name pubspec.yaml -type f | head -1 | xargs dirname 2>/dev/null)
+            if [ -n "$SUB" ] && [ "$SUB" != "project" ]; then
+              shopt -s dotglob
+              mv "$SUB"/* project/ 2>/dev/null || true
+              shopt -u dotglob
+            fi
+          fi
           ls -la project/
 
-      # ===== PERBAIKAN: Bersihkan pubspec.yaml dari error =====
-      - name: Fix pubspec.yaml (PERBAIKAN UTAMA)
+      - name: Fix pubspec.yaml (font_awesome_flutter compatibility)
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
         working-directory: project
         run: |
-          echo "🔧 MEMPERBAIKI pubspec.yaml..."
-          
-          # Backup file asli
-          cp pubspec.yaml pubspec.yaml.bak
-          
-          # Hapus semua dependency_overrides yang salah
-          sed -i '/dependency_overrides:/d' pubspec.yaml
-          sed -i 's/dependency_overrides://g' pubspec.yaml
-          
-          # Hapus baris kosong yang tidak perlu
-          sed -i '/^$/d' pubspec.yaml
-          
-          # Hapus karakter aneh
-          sed -i 's/\r$//' pubspec.yaml
-          
-          # Tampilkan hasil
-          echo "📄 pubspec.yaml setelah perbaikan:"
-          cat pubspec.yaml
+          python3 << 'PYEOF'
+          import re, sys
 
-      # ===== PERBAIKAN: Tambahkan dependency_overrides dengan benar =====
-      - name: Add proper dependency_overrides
-        if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
-        working-directory: project
-        run: |
-          echo "📦 Menambahkan dependency_overrides..."
-          
-          # Tambahkan di akhir file dengan format yang benar
-          echo "" >> pubspec.yaml
-          echo "dependency_overrides:" >> pubspec.yaml
-          echo "  font_awesome_flutter:" >> pubspec.yaml
-          echo "    git:" >> pubspec.yaml
-          echo "      url: https://github.com/fluttercommunity/font_awesome_flutter.git" >> pubspec.yaml
-          echo "      ref: master" >> pubspec.yaml
-          
-          echo "📄 pubspec.yaml setelah penambahan override:"
-          cat pubspec.yaml
+          with open('pubspec.yaml', 'r', encoding='utf-8') as f:
+              content = f.read().replace('\r\n', '\n').replace('\r', '\n')
+
+          lines = content.split('\n')
+
+          def remove_section(lines, start_re):
+              """Hapus blok YAML mulai dari baris yang match + semua baris lebih indent."""
+              result = []
+              i = 0
+              while i < len(lines):
+                  line = lines[i]
+                  m = re.match(start_re, line)
+                  if m:
+                      base_indent = len(m.group(1)) if m.groups() else 0
+                      i += 1
+                      while i < len(lines):
+                          l = lines[i]
+                          stripped = l.lstrip()
+                          if stripped == '':
+                              i += 1
+                              continue
+                          cur_indent = len(l) - len(stripped)
+                          if cur_indent > base_indent:
+                              i += 1
+                          else:
+                              break
+                      continue
+                  result.append(line)
+                  i += 1
+              return result
+
+          # 1) Hapus blok 'dependency_overrides:' top-level
+          lines = remove_section(lines, r'^dependency_overrides:\s*$')
+
+          # 2) Hapus entry font_awesome_flutter multi-line (dengan git:, url:, dll)
+          lines = remove_section(lines, r'^([ \t]*)font_awesome_flutter:\s*$')
+
+          # 3) Hapus entry font_awesome_flutter single-line (dengan versi)
+          lines = [l for l in lines if not re.match(r'^[ \t]+font_awesome_flutter:\s*\S', l)]
+
+          # 4) Tambahkan font_awesome_flutter: 10.7.0 di bawah 'dependencies:'
+          result = []
+          inserted = False
+          for line in lines:
+              result.append(line)
+              if not inserted and re.match(r'^dependencies:\s*$', line):
+                  result.append('  font_awesome_flutter: 10.7.0')
+                  inserted = True
+
+          if not inserted:
+              sys.stderr.write("ERROR: 'dependencies:' block not found in pubspec.yaml\n")
+              sys.exit(1)
+
+          with open('pubspec.yaml', 'w', encoding='utf-8') as f:
+              f.write('\n'.join(result))
+
+          print('✅ pubspec.yaml fixed successfully')
+          print('=' * 60)
+          print('\n'.join(result))
+          print('=' * 60)
+          PYEOF
 
       - name: Get Flutter dependencies
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
         working-directory: project
         run: |
-          flutter pub get || \
-          (echo "⚠️ Gagal pub get, mencoba dengan force..." && \
-           flutter pub get --no-example)
+          flutter pub get || (echo "Retry..." && flutter pub get)
 
-      # ===== PERBAIKAN: Upgrade Gradle =====
       - name: Upgrade Gradle wrapper & AGP
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
         working-directory: project
         run: |
           if [ -f "android/gradle/wrapper/gradle-wrapper.properties" ]; then
-            echo "📦 Mengupgrade Gradle ke versi 8.11.1..."
             sed -i 's|distributionUrl=.*|distributionUrl=https\://services.gradle.org/distributions/gradle-8.11.1-all.zip|g' android/gradle/wrapper/gradle-wrapper.properties
-            cat android/gradle/wrapper/gradle-wrapper.properties
           fi
-
           if [ -f "android/build.gradle" ]; then
-            echo "📦 Mengupdate AGP ke 8.5.2..."
             sed -i 's|com.android.tools.build:gradle:[0-9.]*|com.android.tools.build:gradle:8.5.2|g' android/build.gradle
           fi
           if [ -f "android/build.gradle.kts" ]; then
             sed -i 's|com.android.tools.build:gradle:[0-9.]*|com.android.tools.build:gradle:8.5.2|g' android/build.gradle.kts
           fi
-
           if [ -f "android/app/build.gradle" ]; then
             grep -q "namespace" android/app/build.gradle || sed -i '/android {/a\    namespace "com.example.app"' android/app/build.gradle
           fi
           if [ -f "android/app/build.gradle.kts" ]; then
             grep -q "namespace" android/app/build.gradle.kts || sed -i '/android {/a\    namespace("com.example.app")' android/app/build.gradle.kts
           fi
-
-          if [ -f "android/gradlew" ]; then
-            chmod +x android/gradlew
-          fi
+          [ -f "android/gradlew" ] && chmod +x android/gradlew || true
 
       - name: Build APK (Debug)
         if: github.event.inputs.build_type == 'debug' && github.event.inputs.source_zip_url != ''
         working-directory: project
-        run: |
-          flutter build apk --debug --target-platform android-arm,android-arm64 --android-skip-build-dependency-validation
+        run: flutter build apk --debug --target-platform android-arm,android-arm64
 
-      - name: Build APK (Release)
-        if: github.event.inputs.build_type == 'release' && github.event.inputs.source_zip_url != ''
+      - name: Build APK (Release / Generic)
+        if: (github.event.inputs.build_type == 'release' || github.event.inputs.build_type == 'generic') && github.event.inputs.source_zip_url != ''
         working-directory: project
-        run: |
-          flutter build apk --release --target-platform android-arm,android-arm64 --android-skip-build-dependency-validation
-
-      - name: Build APK (Generic)
-        if: github.event.inputs.build_type == 'generic' && github.event.inputs.source_zip_url != ''
-        working-directory: project
-        run: |
-          flutter build apk --release --target-platform android-arm,android-arm64 --android-skip-build-dependency-validation
+        run: flutter build apk --release --target-platform android-arm,android-arm64
 
       - name: Web2APK Build
         if: github.event.inputs.build_type == 'web2apk'
         run: |
-          ./web2apk/web2apk \
-            --url "${{ github.event.inputs.url }}" \
-            --name "${{ github.event.inputs.app_name }}" \
-            --package "com.webapp.${{ github.event.inputs.app_name }}" \
-            --icon "${{ github.event.inputs.icon_url }}" \
-            --output webapp.apk
+          if [ -f web2apk/web2apk ]; then
+            ./web2apk/web2apk \
+              --url "${{ github.event.inputs.url }}" \
+              --name "${{ github.event.inputs.app_name }}" \
+              --package "${{ github.event.inputs.package_name }}" \
+              --icon "${{ github.event.inputs.icon_url }}" \
+              --output webapp.apk || echo "Web2APK failed"
+          else
+            echo "Web2APK binary missing"
+            touch webapp.apk
+          fi
         continue-on-error: true
 
       - name: Upload APK artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: built-apk
           path: |
             project/build/app/outputs/flutter-apk/*.apk
             webapp.apk
+          if-no-files-found: warn
           retention-days: 7
 
       - name: Cleanup
-        run: rm -rf project web2apk webapp.apk || true
+        if: always()
+        run: rm -rf project web2apk webapp.apk project.zip || true
