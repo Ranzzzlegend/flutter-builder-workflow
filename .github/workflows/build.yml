@@ -73,6 +73,7 @@ jobs:
           wget -O project.zip "${{ github.event.inputs.source_zip_url }}"
           mkdir -p project
           unzip -o project.zip -d project > /dev/null
+          # Handle nested folder
           if [ ! -f "project/pubspec.yaml" ]; then
             SUB=$(find project -maxdepth 3 -name pubspec.yaml -type f | head -1 | xargs dirname 2>/dev/null)
             if [ -n "$SUB" ] && [ "$SUB" != "project" ]; then
@@ -81,86 +82,32 @@ jobs:
               shopt -u dotglob
             fi
           fi
+          echo "=== Isi folder project ==="
           ls -la project/
+          echo "=== Isi pubspec.yaml ==="
+          cat project/pubspec.yaml || true
 
-      - name: Fix pubspec.yaml (font_awesome_flutter compatibility)
-        if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
-        working-directory: project
-        run: |
-          python3 << 'PYEOF'
-          import re, sys
-
-          with open('pubspec.yaml', 'r', encoding='utf-8') as f:
-              content = f.read().replace('\r\n', '\n').replace('\r', '\n')
-          lines = content.split('\n')
-
-          def remove_section(lines, start_re):
-              result = []
-              i = 0
-              while i < len(lines):
-                  line = lines[i]
-                  m = re.match(start_re, line)
-                  if m:
-                      base_indent = len(m.group(1)) if m.groups() else 0
-                      i += 1
-                      while i < len(lines):
-                          l = lines[i]
-                          stripped = l.lstrip()
-                          if stripped == '':
-                              i += 1
-                              continue
-                          cur_indent = len(l) - len(stripped)
-                          if cur_indent > base_indent:
-                              i += 1
-                          else:
-                              break
-                      continue
-                  result.append(line)
-                  i += 1
-              return result
-
-          lines = remove_section(lines, r'^dependency_overrides:\s*$')
-          lines = remove_section(lines, r'^([ \t]*)font_awesome_flutter:\s*$')
-          lines = [l for l in lines if not re.match(r'^[ \t]+font_awesome_flutter:\s*\S', l)]
-
-          result = []
-          inserted = False
-          for line in lines:
-              result.append(line)
-              if not inserted and re.match(r'^dependencies:\s*$', line):
-                  result.append('  font_awesome_flutter: 10.7.0')
-                  inserted = True
-
-          if not inserted:
-              sys.stderr.write("ERROR: 'dependencies:' block not found\n")
-              sys.exit(1)
-
-          with open('pubspec.yaml', 'w', encoding='utf-8') as f:
-              f.write('\n'.join(result))
-          print('✅ pubspec.yaml fixed')
-          PYEOF
+      # ===== JANGAN modifikasi pubspec.yaml — biarkan project apa adanya =====
+      # font_awesome_flutter di project sudah ^10.9.1 (fix untuk Flutter baru)
 
       - name: Get Flutter dependencies
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
         working-directory: project
         run: |
-          flutter pub get || (echo "Retry..." && flutter pub get)
+          flutter pub get || (echo "Retry pub get..." && flutter pub get)
 
-      # ===== FIX UTAMA: Gradle 8.14.3 + AGP 8.9.1 =====
-      - name: Upgrade Gradle wrapper & AGP (FIXED)
+      - name: Upgrade Gradle wrapper & AGP
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
         working-directory: project
         run: |
           if [ -f "android/gradle/wrapper/gradle-wrapper.properties" ]; then
-            echo "📦 Upgrade Gradle ke 8.14.3 (wajib untuk Flutter terbaru)..."
+            echo "📦 Upgrade Gradle ke 8.14.3..."
             sed -i 's|distributionUrl=.*|distributionUrl=https\://services.gradle.org/distributions/gradle-8.14.3-all.zip|g' android/gradle/wrapper/gradle-wrapper.properties
             cat android/gradle/wrapper/gradle-wrapper.properties
           fi
 
           if [ -f "android/build.gradle" ]; then
-            echo "📦 Upgrade AGP ke 8.9.1..."
             sed -i 's|com.android.tools.build:gradle:[0-9.]*|com.android.tools.build:gradle:8.9.1|g' android/build.gradle
-            sed -i 's|com.android.application version "[0-9.]*"|com.android.application version "8.9.1"|g' android/build.gradle 2>/dev/null || true
           fi
           if [ -f "android/build.gradle.kts" ]; then
             sed -i 's|com.android.tools.build:gradle:[0-9.]*|com.android.tools.build:gradle:8.9.1|g' android/build.gradle.kts
@@ -174,7 +121,6 @@ jobs:
             grep -q "namespace" android/app/build.gradle.kts || sed -i '/android {/a\    namespace("com.example.app")' android/app/build.gradle.kts
           fi
 
-          # ===== FIX AGP 9+ newDsl opt-out =====
           if [ -f "android/gradle.properties" ]; then
             grep -q "android.newDsl" android/gradle.properties || echo "android.newDsl=false" >> android/gradle.properties
             grep -q "android.useAndroidX" android/gradle.properties || echo "android.useAndroidX=true" >> android/gradle.properties
@@ -186,14 +132,12 @@ jobs:
       - name: Build APK (Debug)
         if: github.event.inputs.build_type == 'debug' && github.event.inputs.source_zip_url != ''
         working-directory: project
-        run: |
-          flutter build apk --debug --target-platform android-arm,android-arm64 --android-skip-build-dependency-validation
+        run: flutter build apk --debug --target-platform android-arm,android-arm64 --android-skip-build-dependency-validation
 
       - name: Build APK (Release / Generic)
         if: (github.event.inputs.build_type == 'release' || github.event.inputs.build_type == 'generic') && github.event.inputs.source_zip_url != ''
         working-directory: project
-        run: |
-          flutter build apk --release --target-platform android-arm,android-arm64 --android-skip-build-dependency-validation
+        run: flutter build apk --release --target-platform android-arm,android-arm64 --android-skip-build-dependency-validation
 
       - name: Web2APK Build
         if: github.event.inputs.build_type == 'web2apk'
