@@ -50,6 +50,7 @@ jobs:
           distribution: 'zulu'
           java-version: '17'
 
+      # ========== WEB2APK PATH ==========
       - name: Install web2apk dependencies
         if: github.event.inputs.build_type == 'web2apk'
         run: |
@@ -69,6 +70,7 @@ jobs:
           fi
         continue-on-error: true
 
+      # ========== FLUTTER BUILD PATH ==========
       - name: Download Flutter project ZIP
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
         run: |
@@ -83,20 +85,25 @@ jobs:
               shopt -u dotglob
             fi
           fi
-          echo "=== Project ==="
+          echo "=== Project folder ==="
           ls -la project/
+          echo ""
+          echo "=== pubspec.yaml ==="
+          cat project/pubspec.yaml || true
 
+      # ========== STEP 1: Auto-detect Flutter version dari pubspec ==========
       - name: Detect Flutter version from pubspec
         id: detect
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
         run: |
           if [ ! -f "project/pubspec.yaml" ]; then
             echo "fv=3.29.3" >> $GITHUB_OUTPUT
+            echo "Tidak ada pubspec, pakai default 3.29.3"
             exit 0
           fi
 
           SDK=$(grep -E '^[[:space:]]+sdk:' project/pubspec.yaml | head -1 | sed 's/.*sdk:[[:space:]]*//' | tr -d '"' | tr -d "'" | tr -d ' ')
-          echo "SDK: [$SDK]"
+          echo "SDK constraint: [$SDK]"
 
           MIN=$(echo "$SDK" | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)
           if [ -z "$MIN" ]; then MIN="3.5.0"; fi
@@ -106,7 +113,8 @@ jobs:
           MINOR=$(echo "$MIN" | cut -d. -f2)
 
           FLUTTER="3.29.3"
-          if [ "$MAJOR" -ge 4 ]; then FLUTTER="3.47.5"
+          if [ "$MAJOR" -ge 4 ]; then
+            FLUTTER="3.47.5"
           elif [ "$MAJOR" -eq 3 ]; then
             if [ "$MINOR" -ge 10 ]; then FLUTTER="3.47.5"
             elif [ "$MINOR" -ge 9 ]; then FLUTTER="3.41.5"
@@ -130,6 +138,16 @@ jobs:
           channel: stable
           cache: true
 
+      - name: Show Flutter and pubspec info
+        if: steps.s1.outcome == 'success'
+        run: |
+          echo "=== Flutter version ==="
+          flutter --version
+          echo ""
+          echo "=== pubspec.yaml ==="
+          cat project/pubspec.yaml
+
+      # ========== STEP 2: Pub get dengan 3-level fallback ==========
       - name: Pub get attempt 1
         id: pg1
         if: steps.s1.outcome == 'success'
@@ -166,52 +184,7 @@ jobs:
         working-directory: project
         run: flutter pub get
 
-      # ========== FIX KOTLIN VERSION ==========
-      - name: Force Kotlin 1.9.22 (fix dynamic_color & modern packages)
-        if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != '' && (steps.pg1.outcome == 'success' || steps.pg2.outcome == 'success' || steps.pg3.outcome == 'success')
-        working-directory: project
-        run: |
-          KOTLIN_VER="1.9.22"
-          echo "🎯 Forcing Kotlin version to $KOTLIN_VER"
-
-          # Patch android/settings.gradle (Groovy)
-          if [ -f "android/settings.gradle" ]; then
-            if grep -q "org.jetbrains.kotlin.android" android/settings.gradle; then
-              sed -i "s|id \"org.jetbrains.kotlin.android\" version \"[0-9.]*\"|id \"org.jetbrains.kotlin.android\" version \"${KOTLIN_VER}\"|g" android/settings.gradle
-            else
-              sed -i "/pluginManagement {/a\\    plugins {\n        id \"org.jetbrains.kotlin.android\" version \"${KOTLIN_VER}\"\n    }" android/settings.gradle
-            fi
-            echo "=== android/settings.gradle ==="
-            cat android/settings.gradle
-          fi
-
-          # Patch android/settings.gradle.kts (Kotlin DSL)
-          if [ -f "android/settings.gradle.kts" ]; then
-            if grep -q "org.jetbrains.kotlin.android" android/settings.gradle.kts; then
-              sed -i "s|id(\"org.jetbrains.kotlin.android\") version \"[0-9.]*\"|id(\"org.jetbrains.kotlin.android\") version \"${KOTLIN_VER}\"|g" android/settings.gradle.kts
-            else
-              sed -i "/pluginManagement {/a\\    plugins {\n        id(\"org.jetbrains.kotlin.android\") version \"${KOTLIN_VER}\"\n    }" android/settings.gradle.kts
-            fi
-            echo "=== android/settings.gradle.kts ==="
-            cat android/settings.gradle.kts
-          fi
-
-          # Patch android/build.gradle
-          if [ -f "android/build.gradle" ]; then
-            sed -i "s|org.jetbrains.kotlin:kotlin-gradle-plugin:[0-9.]*|org.jetbrains.kotlin:kotlin-gradle-plugin:${KOTLIN_VER}|g" android/build.gradle
-            sed -i "s|ext.kotlin_version = '[0-9.]*'|ext.kotlin_version = '${KOTLIN_VER}'|g" android/build.gradle
-            sed -i "s|ext.kotlin_version = \"[0-9.]*\"|ext.kotlin_version = \"${KOTLIN_VER}\"|g" android/build.gradle
-          fi
-
-          # Patch android/build.gradle.kts
-          if [ -f "android/build.gradle.kts" ]; then
-            sed -i "s|org.jetbrains.kotlin:kotlin-gradle-plugin:[0-9.]*|org.jetbrains.kotlin:kotlin-gradle-plugin:${KOTLIN_VER}|g" android/build.gradle.kts
-            sed -i "s|id(\"org.jetbrains.kotlin.android\") version \"[0-9.]*\"|id(\"org.jetbrains.kotlin.android\") version \"${KOTLIN_VER}\"|g" android/build.gradle.kts
-          fi
-
-          echo "✅ Kotlin version patched"
-
-      # ========== FIX GRADLE/AGP ADAPTIF ==========
+      # ========== STEP 3: Setup Gradle & AGP adaptive ==========
       - name: Setup Gradle and AGP adaptive
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != '' && (steps.pg1.outcome == 'success' || steps.pg2.outcome == 'success' || steps.pg3.outcome == 'success')
         working-directory: project
@@ -241,30 +214,38 @@ jobs:
             fi
           fi
 
-          echo "Gradle: $GRADLE_VER, AGP: $AGP_VER"
+          echo "📦 Gradle: $GRADLE_VER, AGP: $AGP_VER"
 
           if [ -f "android/gradle/wrapper/gradle-wrapper.properties" ]; then
             sed -i "s|distributionUrl=.*|distributionUrl=https\\://services.gradle.org/distributions/gradle-${GRADLE_VER}-all.zip|g" android/gradle/wrapper/gradle-wrapper.properties
+            cat android/gradle/wrapper/gradle-wrapper.properties
           fi
+
           if [ -f "android/build.gradle" ]; then
             sed -i "s|com.android.tools.build:gradle:[0-9.]*|com.android.tools.build:gradle:${AGP_VER}|g" android/build.gradle
           fi
+
           if [ -f "android/build.gradle.kts" ]; then
             sed -i "s|com.android.tools.build:gradle:[0-9.]*|com.android.tools.build:gradle:${AGP_VER}|g" android/build.gradle.kts
             sed -i "s|id(\"com.android.application\") version \"[0-9.]*\"|id(\"com.android.application\") version \"${AGP_VER}\"|g" android/build.gradle.kts 2>/dev/null || true
           fi
+
           if [ -f "android/app/build.gradle" ]; then
             grep -q "namespace" android/app/build.gradle || sed -i '/android {/a\    namespace "com.example.app"' android/app/build.gradle
           fi
+
           if [ -f "android/app/build.gradle.kts" ]; then
             grep -q "namespace" android/app/build.gradle.kts || sed -i '/android {/a\    namespace("com.example.app")' android/app/build.gradle.kts
           fi
+
           if [ -f "android/gradle.properties" ]; then
             grep -q "android.useAndroidX" android/gradle.properties || echo "android.useAndroidX=true" >> android/gradle.properties
             grep -q "android.enableJetifier" android/gradle.properties || echo "android.enableJetifier=true" >> android/gradle.properties
           fi
+
           [ -f "android/gradlew" ] && chmod +x android/gradlew || true
 
+      # ========== STEP 4: Build APK ==========
       - name: Build APK Debug
         if: github.event.inputs.build_type == 'debug' && github.event.inputs.source_zip_url != '' && (steps.pg1.outcome == 'success' || steps.pg2.outcome == 'success' || steps.pg3.outcome == 'success')
         working-directory: project
@@ -275,6 +256,7 @@ jobs:
         working-directory: project
         run: flutter build apk --release --target-platform android-arm,android-arm64 --android-skip-build-dependency-validation
 
+      # ========== STEP 5: Upload artifact ==========
       - name: Upload APK artifact
         if: always()
         uses: actions/upload-artifact@v4
