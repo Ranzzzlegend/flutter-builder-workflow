@@ -83,37 +83,34 @@ jobs:
               shopt -u dotglob
             fi
           fi
-          echo "=== Project folder ==="
+          echo "=== Project ==="
           ls -la project/
 
       - name: Detect Flutter version from pubspec
         id: detect
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
         run: |
-          DEFAULT_FLUTTER="3.29.3"
           if [ ! -f "project/pubspec.yaml" ]; then
-            echo "Flutter version: $DEFAULT_FLUTTER (default, no pubspec)"
-            echo "fv=$DEFAULT_FLUTTER" >> $GITHUB_OUTPUT
+            echo "fv=3.29.3" >> $GITHUB_OUTPUT
             exit 0
           fi
 
           SDK=$(grep -E '^[[:space:]]+sdk:' project/pubspec.yaml | head -1 | sed 's/.*sdk:[[:space:]]*//' | tr -d '"' | tr -d "'" | tr -d ' ')
-          echo "SDK constraint dari pubspec: [$SDK]"
+          echo "SDK: [$SDK]"
 
           MIN=$(echo "$SDK" | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)
           if [ -z "$MIN" ]; then MIN="3.5.0"; fi
-          echo "Min SDK detected: $MIN"
+          echo "Min SDK: $MIN"
 
           MAJOR=$(echo "$MIN" | cut -d. -f1)
           MINOR=$(echo "$MIN" | cut -d. -f2)
 
-          FLUTTER="$DEFAULT_FLUTTER"
-          if [ "$MAJOR" -ge 4 ]; then
-            FLUTTER="3.38.4"
+          FLUTTER="3.29.3"
+          if [ "$MAJOR" -ge 4 ]; then FLUTTER="3.47.5"
           elif [ "$MAJOR" -eq 3 ]; then
-            if [ "$MINOR" -ge 10 ]; then FLUTTER="3.38.4"
-            elif [ "$MINOR" -ge 9 ]; then FLUTTER="3.35.4"
-            elif [ "$MINOR" -ge 8 ]; then FLUTTER="3.32.8"
+            if [ "$MINOR" -ge 10 ]; then FLUTTER="3.47.5"
+            elif [ "$MINOR" -ge 9 ]; then FLUTTER="3.41.5"
+            elif [ "$MINOR" -ge 8 ]; then FLUTTER="3.35.5"
             elif [ "$MINOR" -ge 7 ]; then FLUTTER="3.29.3"
             elif [ "$MINOR" -ge 6 ]; then FLUTTER="3.27.4"
             elif [ "$MINOR" -ge 5 ]; then FLUTTER="3.24.5"
@@ -121,11 +118,11 @@ jobs:
             fi
           fi
 
-          echo "Selected Flutter: $FLUTTER"
+          echo "Detected Flutter: $FLUTTER"
           echo "fv=$FLUTTER" >> $GITHUB_OUTPUT
 
       - name: Setup Flutter detected version
-        id: setup1
+        id: s1
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
         uses: subosito/flutter-action@v2
         with:
@@ -133,71 +130,94 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Show Flutter version and pubspec
-        if: steps.setup1.outcome == 'success'
-        run: |
-          flutter --version
-          echo "=== pubspec.yaml ==="
-          cat project/pubspec.yaml
-
       - name: Pub get attempt 1
         id: pg1
-        if: steps.setup1.outcome == 'success'
+        if: steps.s1.outcome == 'success'
         working-directory: project
         continue-on-error: true
-        run: |
-          flutter pub get 2>&1 | tee /tmp/pg1.log
-          exit ${PIPESTATUS[0]}
+        run: flutter pub get
 
-      - name: Analyze pub get failure
-        id: fail
-        if: steps.pg1.outcome == 'failure'
-        run: |
-          echo "Attempt 1 failed, analyzing error..."
-          REQUIRED=$(grep -oE "requires SDK version [><=^]*[0-9]+\.[0-9]+(\.[0-9]+)?" /tmp/pg1.log 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)
-          echo "Required Dart SDK: [$REQUIRED]"
-
-          FLUTTER="3.38.4"
-          if [ -n "$REQUIRED" ]; then
-            MAJOR=$(echo "$REQUIRED" | cut -d. -f1)
-            MINOR=$(echo "$REQUIRED" | cut -d. -f2)
-            if [ "$MAJOR" -ge 4 ]; then FLUTTER="3.38.4"
-            elif [ "$MAJOR" -eq 3 ]; then
-              if [ "$MINOR" -ge 10 ]; then FLUTTER="3.38.4"
-              elif [ "$MINOR" -ge 9 ]; then FLUTTER="3.35.4"
-              elif [ "$MINOR" -ge 8 ]; then FLUTTER="3.32.8"
-              elif [ "$MINOR" -ge 7 ]; then FLUTTER="3.29.3"
-              elif [ "$MINOR" -ge 6 ]; then FLUTTER="3.27.4"
-              elif [ "$MINOR" -ge 5 ]; then FLUTTER="3.24.5"
-              else FLUTTER="3.22.3"
-              fi
-            fi
-          fi
-
-          echo "Fallback Flutter: $FLUTTER"
-          echo "fv2=$FLUTTER" >> $GITHUB_OUTPUT
-
-      - name: Setup Flutter fallback version
-        id: setup2
-        if: steps.pg1.outcome == 'failure'
+      - name: Setup Flutter latest stable
+        id: s2
+        if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != '' && steps.pg1.outcome != 'success'
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: ${{ steps.fail.outputs.fv2 }}
           channel: stable
           cache: true
 
       - name: Pub get attempt 2
         id: pg2
-        if: steps.pg1.outcome == 'failure' && steps.setup2.outcome == 'success'
+        if: steps.s2.outcome == 'success'
+        working-directory: project
+        continue-on-error: true
+        run: flutter pub get
+
+      - name: Setup Flutter beta channel
+        id: s3
+        if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != '' && steps.pg1.outcome != 'success' && steps.pg2.outcome != 'success'
+        uses: subosito/flutter-action@v2
+        with:
+          channel: beta
+          cache: true
+
+      - name: Pub get attempt 3
+        id: pg3
+        if: steps.s3.outcome == 'success'
         working-directory: project
         run: flutter pub get
 
+      # ========== FIX KOTLIN VERSION ==========
+      - name: Force Kotlin 1.9.22 (fix dynamic_color & modern packages)
+        if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != '' && (steps.pg1.outcome == 'success' || steps.pg2.outcome == 'success' || steps.pg3.outcome == 'success')
+        working-directory: project
+        run: |
+          KOTLIN_VER="1.9.22"
+          echo "🎯 Forcing Kotlin version to $KOTLIN_VER"
+
+          # Patch android/settings.gradle (Groovy)
+          if [ -f "android/settings.gradle" ]; then
+            if grep -q "org.jetbrains.kotlin.android" android/settings.gradle; then
+              sed -i "s|id \"org.jetbrains.kotlin.android\" version \"[0-9.]*\"|id \"org.jetbrains.kotlin.android\" version \"${KOTLIN_VER}\"|g" android/settings.gradle
+            else
+              sed -i "/pluginManagement {/a\\    plugins {\n        id \"org.jetbrains.kotlin.android\" version \"${KOTLIN_VER}\"\n    }" android/settings.gradle
+            fi
+            echo "=== android/settings.gradle ==="
+            cat android/settings.gradle
+          fi
+
+          # Patch android/settings.gradle.kts (Kotlin DSL)
+          if [ -f "android/settings.gradle.kts" ]; then
+            if grep -q "org.jetbrains.kotlin.android" android/settings.gradle.kts; then
+              sed -i "s|id(\"org.jetbrains.kotlin.android\") version \"[0-9.]*\"|id(\"org.jetbrains.kotlin.android\") version \"${KOTLIN_VER}\"|g" android/settings.gradle.kts
+            else
+              sed -i "/pluginManagement {/a\\    plugins {\n        id(\"org.jetbrains.kotlin.android\") version \"${KOTLIN_VER}\"\n    }" android/settings.gradle.kts
+            fi
+            echo "=== android/settings.gradle.kts ==="
+            cat android/settings.gradle.kts
+          fi
+
+          # Patch android/build.gradle
+          if [ -f "android/build.gradle" ]; then
+            sed -i "s|org.jetbrains.kotlin:kotlin-gradle-plugin:[0-9.]*|org.jetbrains.kotlin:kotlin-gradle-plugin:${KOTLIN_VER}|g" android/build.gradle
+            sed -i "s|ext.kotlin_version = '[0-9.]*'|ext.kotlin_version = '${KOTLIN_VER}'|g" android/build.gradle
+            sed -i "s|ext.kotlin_version = \"[0-9.]*\"|ext.kotlin_version = \"${KOTLIN_VER}\"|g" android/build.gradle
+          fi
+
+          # Patch android/build.gradle.kts
+          if [ -f "android/build.gradle.kts" ]; then
+            sed -i "s|org.jetbrains.kotlin:kotlin-gradle-plugin:[0-9.]*|org.jetbrains.kotlin:kotlin-gradle-plugin:${KOTLIN_VER}|g" android/build.gradle.kts
+            sed -i "s|id(\"org.jetbrains.kotlin.android\") version \"[0-9.]*\"|id(\"org.jetbrains.kotlin.android\") version \"${KOTLIN_VER}\"|g" android/build.gradle.kts
+          fi
+
+          echo "✅ Kotlin version patched"
+
+      # ========== FIX GRADLE/AGP ADAPTIF ==========
       - name: Setup Gradle and AGP adaptive
-        if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != '' && (steps.pg1.outcome == 'success' || steps.pg2.outcome == 'success')
+        if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != '' && (steps.pg1.outcome == 'success' || steps.pg2.outcome == 'success' || steps.pg3.outcome == 'success')
         working-directory: project
         run: |
           FLUTTER_VER=$(flutter --version 2>/dev/null | head -1 | awk '{print $2}')
-          echo "Flutter version sekarang: $FLUTTER_VER"
+          echo "Flutter sekarang: $FLUTTER_VER"
 
           GRADLE_VER="8.11.1"
           AGP_VER="8.7.3"
@@ -221,14 +241,11 @@ jobs:
             fi
           fi
 
-          echo "Gradle: $GRADLE_VER"
-          echo "AGP: $AGP_VER"
+          echo "Gradle: $GRADLE_VER, AGP: $AGP_VER"
 
           if [ -f "android/gradle/wrapper/gradle-wrapper.properties" ]; then
             sed -i "s|distributionUrl=.*|distributionUrl=https\\://services.gradle.org/distributions/gradle-${GRADLE_VER}-all.zip|g" android/gradle/wrapper/gradle-wrapper.properties
-            cat android/gradle/wrapper/gradle-wrapper.properties
           fi
-
           if [ -f "android/build.gradle" ]; then
             sed -i "s|com.android.tools.build:gradle:[0-9.]*|com.android.tools.build:gradle:${AGP_VER}|g" android/build.gradle
           fi
@@ -236,28 +253,25 @@ jobs:
             sed -i "s|com.android.tools.build:gradle:[0-9.]*|com.android.tools.build:gradle:${AGP_VER}|g" android/build.gradle.kts
             sed -i "s|id(\"com.android.application\") version \"[0-9.]*\"|id(\"com.android.application\") version \"${AGP_VER}\"|g" android/build.gradle.kts 2>/dev/null || true
           fi
-
           if [ -f "android/app/build.gradle" ]; then
             grep -q "namespace" android/app/build.gradle || sed -i '/android {/a\    namespace "com.example.app"' android/app/build.gradle
           fi
           if [ -f "android/app/build.gradle.kts" ]; then
             grep -q "namespace" android/app/build.gradle.kts || sed -i '/android {/a\    namespace("com.example.app")' android/app/build.gradle.kts
           fi
-
           if [ -f "android/gradle.properties" ]; then
             grep -q "android.useAndroidX" android/gradle.properties || echo "android.useAndroidX=true" >> android/gradle.properties
             grep -q "android.enableJetifier" android/gradle.properties || echo "android.enableJetifier=true" >> android/gradle.properties
           fi
-
           [ -f "android/gradlew" ] && chmod +x android/gradlew || true
 
       - name: Build APK Debug
-        if: github.event.inputs.build_type == 'debug' && github.event.inputs.source_zip_url != '' && (steps.pg1.outcome == 'success' || steps.pg2.outcome == 'success')
+        if: github.event.inputs.build_type == 'debug' && github.event.inputs.source_zip_url != '' && (steps.pg1.outcome == 'success' || steps.pg2.outcome == 'success' || steps.pg3.outcome == 'success')
         working-directory: project
         run: flutter build apk --debug --target-platform android-arm,android-arm64 --android-skip-build-dependency-validation
 
       - name: Build APK Release
-        if: (github.event.inputs.build_type == 'release' || github.event.inputs.build_type == 'generic') && github.event.inputs.source_zip_url != '' && (steps.pg1.outcome == 'success' || steps.pg2.outcome == 'success')
+        if: (github.event.inputs.build_type == 'release' || github.event.inputs.build_type == 'generic') && github.event.inputs.source_zip_url != '' && (steps.pg1.outcome == 'success' || steps.pg2.outcome == 'success' || steps.pg3.outcome == 'success')
         working-directory: project
         run: flutter build apk --release --target-platform android-arm,android-arm64 --android-skip-build-dependency-validation
 
