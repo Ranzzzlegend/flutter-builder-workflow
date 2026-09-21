@@ -50,12 +50,13 @@ jobs:
           distribution: 'zulu'
           java-version: '17'
 
-      # ===== FIX UTAMA: Pakai Flutter 3.24.5 (Dart 3.5.4) =====
-      # Di versi ini, IconData BELUM final class → font_awesome_flutter 10.x berhasil
-      - name: Setup Flutter 3.24.5
+      # ===== FIX FINAL: Flutter 3.29.3 =====
+      # - Dart 3.7 (IconData BELUM final class → font_awesome_flutter 10.x OK)
+      # - Memenuhi syarat font_awesome_flutter 10.9.1 (Flutter >= 3.27.0)
+      - name: Setup Flutter 3.29.3
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.24.5'
+          flutter-version: '3.29.3'
           channel: 'stable'
           cache: true
 
@@ -86,8 +87,18 @@ jobs:
           fi
           echo "=== Isi folder project ==="
           ls -la project/
+          echo "=== pubspec.yaml ==="
+          cat project/pubspec.yaml || true
 
-      # ===== JANGAN modifikasi pubspec.yaml — biarkan apa adanya =====
+      - name: Show project pubspec (debug)
+        if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
+        working-directory: project
+        run: |
+          echo "=== Flutter version used ==="
+          flutter --version
+          echo ""
+          echo "=== pubspec.yaml content ==="
+          cat pubspec.yaml
 
       - name: Get Flutter dependencies
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
@@ -95,23 +106,23 @@ jobs:
         run: |
           flutter pub get || (echo "Retry..." && flutter pub get)
 
-      # ===== Gradle & AGP untuk Flutter 3.24.5 =====
+      # ===== Gradle & AGP untuk Flutter 3.29.3 =====
       - name: Upgrade Gradle wrapper & AGP
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
         working-directory: project
         run: |
           if [ -f "android/gradle/wrapper/gradle-wrapper.properties" ]; then
-            echo "📦 Set Gradle 8.9 untuk Flutter 3.24.5..."
-            sed -i 's|distributionUrl=.*|distributionUrl=https\://services.gradle.org/distributions/gradle-8.9-all.zip|g' android/gradle/wrapper/gradle-wrapper.properties
+            echo "📦 Set Gradle 8.11.1 untuk Flutter 3.29.3..."
+            sed -i 's|distributionUrl=.*|distributionUrl=https\://services.gradle.org/distributions/gradle-8.11.1-all.zip|g' android/gradle/wrapper/gradle-wrapper.properties
             cat android/gradle/wrapper/gradle-wrapper.properties
           fi
 
           if [ -f "android/build.gradle" ]; then
-            sed -i 's|com.android.tools.build:gradle:[0-9.]*|com.android.tools.build:gradle:8.5.2|g' android/build.gradle
+            sed -i 's|com.android.tools.build:gradle:[0-9.]*|com.android.tools.build:gradle:8.7.3|g' android/build.gradle
           fi
           if [ -f "android/build.gradle.kts" ]; then
-            sed -i 's|com.android.tools.build:gradle:[0-9.]*|com.android.tools.build:gradle:8.5.2|g' android/build.gradle.kts
-            sed -i 's|id("com.android.application") version "[0-9.]*"|id("com.android.application") version "8.5.2"|g' android/build.gradle.kts 2>/dev/null || true
+            sed -i 's|com.android.tools.build:gradle:[0-9.]*|com.android.tools.build:gradle:8.7.3|g' android/build.gradle.kts
+            sed -i 's|id("com.android.application") version "[0-9.]*"|id("com.android.application") version "8.7.3"|g' android/build.gradle.kts 2>/dev/null || true
           fi
 
           if [ -f "android/app/build.gradle" ]; then
