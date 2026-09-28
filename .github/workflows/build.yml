@@ -109,8 +109,8 @@ jobs:
         id: detect
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
         run: |
-          # 🔑 KUNCI PERBAIKAN: PAKSA MENGGUNAKAN FLUTTER 3.24.5
-          FLUTTER="3.24.5"
+          # 🔑 KUNCI PERBAIKAN: PAKSA MENGGUNAKAN FLUTTER 3.29.3
+          FLUTTER="3.29.3"
           echo "Detected Flutter: $FLUTTER"
           echo "fv=$FLUTTER" >> $GITHUB_OUTPUT
       # =========================================================
