@@ -90,9 +90,6 @@ jobs:
           echo ""
           echo "=== pubspec.yaml ASLI (sebelum patch) ==="
           cat project/pubspec.yaml || true
-          echo ""
-          echo "=== Cek pubspec.lock ==="
-          ls -la project/pubspec.lock 2>/dev/null || echo "Tidak ada pubspec.lock"
 
       # ========== STEP AUTO-PATCH ==========
       - name: Auto-patch project (hapus lock + force packages)
@@ -106,43 +103,6 @@ jobs:
             rm -f pubspec.lock
           fi
           rm -rf .dart_tool 2>/dev/null || true
-          python3 << 'PYEOF'
-          import re
-          with open('pubspec.yaml', 'r', encoding='utf-8') as f:
-              content = f.read().replace('\r\n', '\n').replace('\r', '\n')
-          fixes = {
-              'dynamic_color': '1.7.0',
-              'font_awesome_flutter': '10.9.1',
-          }
-          lines = content.split('\n')
-          result = []
-          applied = []
-          for line in lines:
-              matched = False
-              for pkg, ver in fixes.items():
-                  pattern = rf'^(\s{{2}}){re.escape(pkg)}:\s*\S+'
-                  m = re.match(pattern, line)
-                  if m:
-                      result.append(f'  {pkg}: {ver}')
-                      applied.append(f'{pkg} → {ver}')
-                      matched = True
-                      break
-              if not matched:
-                  result.append(line)
-          content = '\n'.join(result)
-          content = re.sub(r'\ndependency_overrides:.*?(?=\n\S|\Z)', '\n', content, flags=re.DOTALL)
-          override_block = '\ndependency_overrides:\n'
-          for pkg, ver in fixes.items():
-              override_block += f'  {pkg}: {ver}\n'
-          content = content.rstrip() + '\n' + override_block
-          with open('pubspec.yaml', 'w', encoding='utf-8') as f:
-              f.write(content)
-          print("✅ Fixes applied:")
-          for a in applied:
-              print(f"   - {a}")
-          PYEOF
-          echo "=== pubspec.yaml SETELAH patch ==="
-          cat pubspec.yaml
 
       # ========== STEP DETECT Flutter version ==========
       - name: Detect Flutter version from pubspec
@@ -225,29 +185,20 @@ jobs:
         working-directory: project
         run: flutter pub get
 
-      # ========== STEP GRADLE ADAPTIVE ==========
+      # ========== STEP GRADLE ADAPTIVE (DIPERBAIKI) ==========
       - name: Setup Gradle and AGP adaptive
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != '' && (steps.pg1.outcome == 'success' || steps.pg2.outcome == 'success' || steps.pg3.outcome == 'success')
         working-directory: project
         run: |
           FLUTTER_VER=$(flutter --version 2>/dev/null | head -1 | awk '{print $2}')
           echo "Flutter sekarang: $FLUTTER_VER"
-          GRADLE_VER="8.11.1"
-          AGP_VER="8.7.3"
-          FM=$(echo "$FLUTTER_VER" | cut -d. -f1)
-          Fm=$(echo "$FLUTTER_VER" | cut -d. -f2)
-          if [ "$FM" = "3" ]; then
-            if [ "$Fm" -ge 33 ]; then
-              GRADLE_VER="8.14.3"; AGP_VER="8.9.1"
-            elif [ "$Fm" -ge 28 ]; then
-              GRADLE_VER="8.11.1"; AGP_VER="8.7.3"
-            elif [ "$Fm" -ge 25 ]; then
-              GRADLE_VER="8.9"; AGP_VER="8.5.2"
-            else
-              GRADLE_VER="8.4"; AGP_VER="8.3.0"
-            fi
-          fi
+          
+          # SELALU GUNAKAN GRADLE 8.14.3 DAN AGP 8.9.1 UNTUK KOMPATIBILITAS MAKSIMAL
+          GRADLE_VER="8.14.3"
+          AGP_VER="8.9.1"
+          
           echo "📦 Gradle: $GRADLE_VER, AGP: $AGP_VER"
+          
           if [ -f "android/gradle/wrapper/gradle-wrapper.properties" ]; then
             sed -i "s|distributionUrl=.*|distributionUrl=https\\://services.gradle.org/distributions/gradle-${GRADLE_VER}-all.zip|g" android/gradle/wrapper/gradle-wrapper.properties
           fi
@@ -270,7 +221,7 @@ jobs:
           fi
           [ -f "android/gradlew" ] && chmod +x android/gradlew || true
 
-      # ==================== STEP KRUSIAL UNTUK MEMPERBAIKI ERROR PERMISSION ====================
+      # ==================== STEP KRUSIAL: FIX PERMISSION & VERSION ====================
       - name: Fix Gradle Wrapper Permissions (CRITICAL FIX)
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != '' && (steps.pg1.outcome == 'success' || steps.pg2.outcome == 'success' || steps.pg3.outcome == 'success')
         working-directory: project
@@ -280,25 +231,25 @@ jobs:
           # 1. Pastikan gradlew bisa dieksekusi
           chmod +x android/gradlew
           
-          # 2. Hapus cache gradle yang rusak (jika ada)
+          # 2. HAPUS TOTAL cache gradle lama (jika ada)
           rm -rf $HOME/.gradle/wrapper/dists/ || true
           
-          # 3. Pre-download Gradle menggunakan wrapper (ini akan mengunduh gradle ke cache)
-          echo "⬇️  Pre-downloading Gradle..."
+          # 3. Pre-download Gradle menggunakan wrapper (ini akan mengunduh gradle 8.14.3 ke cache)
+          echo "⬇️  Pre-downloading Gradle 8.14.3..."
           (cd android && ./gradlew --version) || echo "Pre-download selesai dengan catatan"
           
-          # 4. Perbaiki izin SEMUA file di dalam folder cache gradle
+          # 4. PERBAIKI IZIN SEMUA FILE DI DALAM CACHE GRADLE
           echo "🔐 Memperbaiki izin file di cache Gradle..."
-          chmod -R +x $HOME/.gradle/wrapper/dists/ 2>/dev/null || true
-          find $HOME/.gradle/wrapper/dists -type f -name "gradle" -exec chmod +x {} \; 2>/dev/null || true
-          find $HOME/.gradle/wrapper/dists -type f -name "*.sh" -exec chmod +x {} \; 2>/dev/null || true
+          chmod -R +x $HOME/.gradle/ 2>/dev/null || true
+          find $HOME/.gradle -type f -name "gradle" -exec chmod +x {} \; 2>/dev/null || true
+          find $HOME/.gradle -type f -name "*.sh" -exec chmod +x {} \; 2>/dev/null || true
           
           # 5. Verifikasi bahwa binary gradle sudah bisa dieksekusi
           echo "✅ Verifikasi binary Gradle:"
-          find $HOME/.gradle/wrapper/dists -name "gradle" -type f -exec ls -la {} \; 2>/dev/null || echo "⚠️ Binary gradle tidak ditemukan (akan diunduh saat build)"
+          find $HOME/.gradle -name "gradle" -type f -exec ls -la {} \; 2>/dev/null || echo "⚠️ Binary gradle tidak ditemukan"
           
           echo "✅ Perbaikan izin selesai!"
-      # =========================================================================================
+      # ===================================================================
 
       # ========== BUILD APK ==========
       - name: Build APK Debug
