@@ -110,7 +110,7 @@ jobs:
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
         run: |
           if [ ! -f "project/pubspec.yaml" ]; then
-            echo "fv=3.22.3" >> $GITHUB_OUTPUT
+            echo "fv=3.24.5" >> $GITHUB_OUTPUT
             exit 0
           fi
           SDK=$(grep -E '^[[:space:]]+sdk:' project/pubspec.yaml | head -1 | sed 's/.*sdk:[[:space:]]*//' | tr -d '"' | tr -d "'" | tr -d ' ')
@@ -185,77 +185,56 @@ jobs:
         working-directory: project
         run: flutter pub get
 
-      # ========== STEP PREPARE GRADLE (SUPER FIX) ==========
-      - name: Prepare Gradle distribution with correct permissions
+      # ==================== SOLUSI UTAMA: INSTALL GRADLE GLOBAL ====================
+      - name: Install Gradle 8.14.3 globally with proper permissions
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != '' && (steps.pg1.outcome == 'success' || steps.pg2.outcome == 'success' || steps.pg3.outcome == 'success')
         run: |
-          echo "🔧 Mempersiapkan Gradle distribution dengan izin yang benar..."
-          GRADLE_VER="8.14.3"
-          
-          # 1. Download Gradle original
+          echo "🔧 Menginstall Gradle 8.14.3 secara global..."
           cd /tmp
-          wget -q "https://services.gradle.org/distributions/gradle-${GRADLE_VER}-bin.zip" -O gradle-original.zip
-          ls -la gradle-original.zip
+          wget -q "https://services.gradle.org/distributions/gradle-8.14.3-bin.zip" -O gradle.zip
+          ls -la gradle.zip
+          unzip -q gradle.zip
+          sudo mkdir -p /opt/gradle
+          sudo mv gradle-8.14.3 /opt/gradle/
+          sudo chmod -R 755 /opt/gradle/gradle-8.14.3/
+          sudo chmod +x /opt/gradle/gradle-8.14.3/bin/gradle
           
-          # 2. Extract dan fix permission
-          unzip -q gradle-original.zip
-          chmod -R +x "gradle-${GRADLE_VER}/"
-          
-          # 3. Verifikasi permission SEBELUM re-zip
-          echo "✅ Permission gradle binary SEBELUM re-zip:"
-          ls -la "gradle-${GRADLE_VER}/bin/gradle"
-          
-          # 4. Re-zip dengan permission yang sudah benar
-          zip -q -r gradle-fixed.zip "gradle-${GRADLE_VER}/"
-          
-          # 5. Verifikasi permission di dalam zip
-          unzip -l gradle-fixed.zip | head -5
-          
-          echo "✅ Gradle zip lokal siap: /tmp/gradle-fixed.zip"
+          echo "✅ Verifikasi Gradle global:"
+          ls -la /opt/gradle/gradle-8.14.3/bin/gradle
+          /opt/gradle/gradle-8.14.3/bin/gradle --version
+      # ==============================================================================
 
-      - name: Patch Gradle Wrapper to use local distribution
+      # ==================== OVERRIDE gradlew ====================
+      - name: Override gradlew with system gradle wrapper
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != '' && (steps.pg1.outcome == 'success' || steps.pg2.outcome == 'success' || steps.pg3.outcome == 'success')
         working-directory: project
         run: |
-          echo "🔧 Mengarahkan gradle-wrapper.properties ke zip lokal..."
+          echo "🔧 Mengganti gradlew dengan script pemanggil Gradle global..."
           
-          # Hapus cache lama
-          rm -rf $HOME/.gradle/wrapper/dists/*
+          # Backup gradlew asli
+          if [ -f "android/gradlew" ]; then
+            cp android/gradlew android/gradlew.bak
+          fi
           
-          # Patch distributionUrl
-          sed -i "s|distributionUrl=.*|distributionUrl=file\\:///tmp/gradle-fixed.zip|g" android/gradle/wrapper/gradle-wrapper.properties
+          # Buat script gradlew baru
+          cat > android/gradlew << 'GRADLEW_EOF'
+          #!/bin/bash
+          exec /opt/gradle/gradle-8.14.3/bin/gradle "$@"
+          GRADLEW_EOF
           
-          echo "=== gradle-wrapper.properties SETELAH patch ==="
-          cat android/gradle/wrapper/gradle-wrapper.properties
-          
-          # Pastikan gradlew executable
           chmod +x android/gradlew
-
-      - name: Pre-extract and verify Gradle
-        if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != '' && (steps.pg1.outcome == 'success' || steps.pg2.outcome == 'success' || steps.pg3.outcome == 'success')
-        working-directory: project
-        run: |
-          echo "⬇️  Pre-download Gradle via wrapper..."
-          (cd android && ./gradlew --version) || echo "Pre-download selesai dengan catatan"
           
-          echo "🔐 Memperbaiki izin SEMUA file di cache Gradle..."
-          chmod -R +x $HOME/.gradle/ 2>/dev/null || true
-          find $HOME/.gradle -type f -name "gradle" -exec chmod +x {} \; 2>/dev/null || true
-          find $HOME/.gradle -type f -name "*.sh" -exec chmod +x {} \; 2>/dev/null || true
-          
-          echo "✅ Verifikasi binary Gradle:"
-          find $HOME/.gradle -name "gradle" -type f -exec ls -la {} \; 2>/dev/null || echo "⚠️ Tidak ditemukan"
+          echo "✅ Verifikasi gradlew baru:"
+          cat android/gradlew
+          ls -la android/gradlew
+      # ==========================================================
 
       # ========== STEP GRADLE ADAPTIVE ==========
       - name: Setup Gradle and AGP adaptive
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != '' && (steps.pg1.outcome == 'success' || steps.pg2.outcome == 'success' || steps.pg3.outcome == 'success')
         working-directory: project
         run: |
-          echo "📦 Memastikan Gradle & AGP version yang kompatibel..."
-          
-          if [ -f "android/gradle/wrapper/gradle-wrapper.properties" ]; then
-            grep "distributionUrl" android/gradle/wrapper/gradle-wrapper.properties
-          fi
+          echo "📦 Memastikan AGP version yang kompatibel..."
           
           if [ -f "android/build.gradle" ]; then
             sed -i "s|com.android.tools.build:gradle:[0-9.]*|com.android.tools.build:gradle:8.9.1|g" android/build.gradle
@@ -289,17 +268,6 @@ jobs:
           sed -i '/flutter\.versionName/d' android/app/build.gradle
           echo "✅ Perbaikan versionCode selesai."
 
-      # ==================== FINAL PERMISSION FIX ====================
-      - name: Final Gradle permission fix
-        if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != '' && (steps.pg1.outcome == 'success' || steps.pg2.outcome == 'success' || steps.pg3.outcome == 'success')
-        working-directory: project
-        run: |
-          chmod +x android/gradlew
-          chmod -R +x $HOME/.gradle/ 2>/dev/null || true
-          find $HOME/.gradle -name "gradle" -type f -exec chmod +x {} \; 2>/dev/null || true
-          find $HOME/.gradle -name "gradlew" -type f -exec chmod +x {} \; 2>/dev/null || true
-          echo "✅ Final permission fix done."
-
       # ========== BUILD APK ==========
       - name: Build APK Debug
         if: github.event.inputs.build_type == 'debug' && github.event.inputs.source_zip_url != '' && (steps.pg1.outcome == 'success' || steps.pg2.outcome == 'success' || steps.pg3.outcome == 'success')
@@ -325,4 +293,4 @@ jobs:
 
       - name: Cleanup
         if: always()
-        run: rm -rf project web2apk webapp.apk project.zip /tmp/gradle-* || true
+        run: rm -rf project web2apk webapp.apk project.zip /tmp/gradle* || true
