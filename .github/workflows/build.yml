@@ -104,36 +104,16 @@ jobs:
           fi
           rm -rf .dart_tool 2>/dev/null || true
 
-      # ========== STEP DETECT Flutter version ==========
+      # ========== STEP DETECT Flutter version (FIXED) ==========
       - name: Detect Flutter version from pubspec
         id: detect
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
         run: |
-          if [ ! -f "project/pubspec.yaml" ]; then
-            echo "fv=3.24.5" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-          SDK=$(grep -E '^[[:space:]]+sdk:' project/pubspec.yaml | head -1 | sed 's/.*sdk:[[:space:]]*//' | tr -d '"' | tr -d "'" | tr -d ' ')
-          echo "SDK: [$SDK]"
-          MIN=$(echo "$SDK" | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)
-          if [ -z "$MIN" ]; then MIN="3.5.0"; fi
-          echo "Min SDK: $MIN"
-          MAJOR=$(echo "$MIN" | cut -d. -f1)
-          MINOR=$(echo "$MIN" | cut -d. -f2)
+          # 🔑 KUNCI PERBAIKAN: PAKSA MENGGUNAKAN FLUTTER 3.24.5
           FLUTTER="3.24.5"
-          if [ "$MAJOR" -ge 4 ]; then FLUTTER="3.47.5"
-          elif [ "$MAJOR" -eq 3 ]; then
-            if [ "$MINOR" -ge 10 ]; then FLUTTER="3.47.5"
-            elif [ "$MINOR" -ge 9 ]; then FLUTTER="3.41.5"
-            elif [ "$MINOR" -ge 8 ]; then FLUTTER="3.35.5"
-            elif [ "$MINOR" -ge 7 ]; then FLUTTER="3.29.3"
-            elif [ "$MINOR" -ge 6 ]; then FLUTTER="3.27.4"
-            elif [ "$MINOR" -ge 5 ]; then FLUTTER="3.24.5"
-            else FLUTTER="3.22.3"
-            fi
-          fi
           echo "Detected Flutter: $FLUTTER"
           echo "fv=$FLUTTER" >> $GITHUB_OUTPUT
+      # =========================================================
 
       - name: Setup Flutter detected version
         id: s1
@@ -185,24 +165,20 @@ jobs:
         working-directory: project
         run: flutter pub get
 
-      # ==================== SOLUSI UTAMA: INSTALL GRADLE GLOBAL ====================
+      # ==================== INSTALL GRADLE GLOBAL ====================
       - name: Install Gradle 8.14.3 globally with proper permissions
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != '' && (steps.pg1.outcome == 'success' || steps.pg2.outcome == 'success' || steps.pg3.outcome == 'success')
         run: |
           echo "🔧 Menginstall Gradle 8.14.3 secara global..."
           cd /tmp
           wget -q "https://services.gradle.org/distributions/gradle-8.14.3-bin.zip" -O gradle.zip
-          ls -la gradle.zip
           unzip -q gradle.zip
           sudo mkdir -p /opt/gradle
           sudo mv gradle-8.14.3 /opt/gradle/
           sudo chmod -R 755 /opt/gradle/gradle-8.14.3/
           sudo chmod +x /opt/gradle/gradle-8.14.3/bin/gradle
-          
           echo "✅ Verifikasi Gradle global:"
-          ls -la /opt/gradle/gradle-8.14.3/bin/gradle
           /opt/gradle/gradle-8.14.3/bin/gradle --version
-      # ==============================================================================
 
       # ==================== OVERRIDE gradlew ====================
       - name: Override gradlew with system gradle wrapper
@@ -210,24 +186,17 @@ jobs:
         working-directory: project
         run: |
           echo "🔧 Mengganti gradlew dengan script pemanggil Gradle global..."
-          
-          # Backup gradlew asli
           if [ -f "android/gradlew" ]; then
             cp android/gradlew android/gradlew.bak
           fi
-          
-          # Buat script gradlew baru
           cat > android/gradlew << 'GRADLEW_EOF'
           #!/bin/bash
           exec /opt/gradle/gradle-8.14.3/bin/gradle "$@"
           GRADLEW_EOF
-          
           chmod +x android/gradlew
-          
           echo "✅ Verifikasi gradlew baru:"
           cat android/gradlew
           ls -la android/gradlew
-      # ==========================================================
 
       # ========== STEP GRADLE ADAPTIVE ==========
       - name: Setup Gradle and AGP adaptive
@@ -235,7 +204,6 @@ jobs:
         working-directory: project
         run: |
           echo "📦 Memastikan AGP version yang kompatibel..."
-          
           if [ -f "android/build.gradle" ]; then
             sed -i "s|com.android.tools.build:gradle:[0-9.]*|com.android.tools.build:gradle:8.9.1|g" android/build.gradle
           fi
