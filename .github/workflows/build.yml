@@ -94,41 +94,29 @@ jobs:
           echo "=== Cek pubspec.lock ==="
           ls -la project/pubspec.lock 2>/dev/null || echo "Tidak ada pubspec.lock"
 
-      # ========== STEP AUTO-PATCH: Hapus lock + Force package fix ==========
+      # ========== STEP AUTO-PATCH ==========
       - name: Auto-patch project (hapus lock + force packages)
         id: patch
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
         working-directory: project
         run: |
           echo "🔧 Auto-patch project..."
-
-          # 1) HAPUS pubspec.lock (paksa resolve ulang)
           if [ -f "pubspec.lock" ]; then
             echo "🗑️  Hapus pubspec.lock (paksa resolve ulang)..."
             rm -f pubspec.lock
           fi
-
-          # 2) Hapus .dart_tool cache jika ada
           rm -rf .dart_tool 2>/dev/null || true
-
-          # 3) FORCE package overrides untuk package yang problematic
           python3 << 'PYEOF'
           import re
-
           with open('pubspec.yaml', 'r', encoding='utf-8') as f:
               content = f.read().replace('\r\n', '\n').replace('\r', '\n')
-
-          # Fixes yang kita mau: exact version (bukan ^)
           fixes = {
-              'dynamic_color': '1.7.0',           # 1.9.0+ pakai kotlin{} yang break
-              'font_awesome_flutter': '10.9.1',   # fix IconData final class
+              'dynamic_color': '1.7.0',
+              'font_awesome_flutter': '10.9.1',
           }
-
           lines = content.split('\n')
           result = []
           applied = []
-
-          # Pass 1: override di dependencies section
           for line in lines:
               matched = False
               for pkg, ver in fixes.items():
@@ -141,30 +129,18 @@ jobs:
                       break
               if not matched:
                   result.append(line)
-
           content = '\n'.join(result)
-
-          # Pass 2: tambahkan dependency_overrides di akhir
-          # Hapus dependency_overrides lama kalau ada
           content = re.sub(r'\ndependency_overrides:.*?(?=\n\S|\Z)', '\n', content, flags=re.DOTALL)
-
-          # Append dependency_overrides baru
           override_block = '\ndependency_overrides:\n'
           for pkg, ver in fixes.items():
               override_block += f'  {pkg}: {ver}\n'
-
           content = content.rstrip() + '\n' + override_block
-
           with open('pubspec.yaml', 'w', encoding='utf-8') as f:
               f.write(content)
-
           print("✅ Fixes applied:")
           for a in applied:
               print(f"   - {a}")
-          print("✅ dependency_overrides ditambahkan")
           PYEOF
-
-          echo ""
           echo "=== pubspec.yaml SETELAH patch ==="
           cat pubspec.yaml
 
@@ -177,17 +153,13 @@ jobs:
             echo "fv=3.29.3" >> $GITHUB_OUTPUT
             exit 0
           fi
-
           SDK=$(grep -E '^[[:space:]]+sdk:' project/pubspec.yaml | head -1 | sed 's/.*sdk:[[:space:]]*//' | tr -d '"' | tr -d "'" | tr -d ' ')
           echo "SDK: [$SDK]"
-
           MIN=$(echo "$SDK" | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)
           if [ -z "$MIN" ]; then MIN="3.5.0"; fi
           echo "Min SDK: $MIN"
-
           MAJOR=$(echo "$MIN" | cut -d. -f1)
           MINOR=$(echo "$MIN" | cut -d. -f2)
-
           FLUTTER="3.29.3"
           if [ "$MAJOR" -ge 4 ]; then FLUTTER="3.47.5"
           elif [ "$MAJOR" -eq 3 ]; then
@@ -200,7 +172,6 @@ jobs:
             else FLUTTER="3.22.3"
             fi
           fi
-
           echo "Detected Flutter: $FLUTTER"
           echo "fv=$FLUTTER" >> $GITHUB_OUTPUT
 
@@ -217,7 +188,7 @@ jobs:
         if: steps.s1.outcome == 'success'
         run: flutter --version
 
-      # ========== STEP PUB GET dengan 3-level fallback ==========
+      # ========== STEP PUB GET ==========
       - name: Pub get attempt 1
         id: pg1
         if: steps.s1.outcome == 'success'
@@ -254,31 +225,17 @@ jobs:
         working-directory: project
         run: flutter pub get
 
-      # ========== VERIFIKASI: cek versi dynamic_color yang ke-resolve ==========
-      - name: Verify resolved package versions
-        if: (steps.pg1.outcome == 'success' || steps.pg2.outcome == 'success' || steps.pg3.outcome == 'success')
-        working-directory: project
-        run: |
-          echo "=== Cek dynamic_color yang ter-resolve ==="
-          grep -A 2 "dynamic_color:" pubspec.lock 2>/dev/null | head -10 || echo "Tidak ditemukan di lock"
-          echo ""
-          echo "=== Cek font_awesome_flutter yang ter-resolve ==="
-          grep -A 2 "font_awesome_flutter:" pubspec.lock 2>/dev/null | head -10 || echo "Tidak ditemukan di lock"
-
-      # ========== STEP GRADLE + AGP adaptive ==========
+      # ========== STEP GRADLE ADAPTIVE ==========
       - name: Setup Gradle and AGP adaptive
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != '' && (steps.pg1.outcome == 'success' || steps.pg2.outcome == 'success' || steps.pg3.outcome == 'success')
         working-directory: project
         run: |
           FLUTTER_VER=$(flutter --version 2>/dev/null | head -1 | awk '{print $2}')
           echo "Flutter sekarang: $FLUTTER_VER"
-
           GRADLE_VER="8.11.1"
           AGP_VER="8.7.3"
-
           FM=$(echo "$FLUTTER_VER" | cut -d. -f1)
           Fm=$(echo "$FLUTTER_VER" | cut -d. -f2)
-
           if [ "$FM" = "3" ]; then
             if [ "$Fm" -ge 33 ]; then
               GRADLE_VER="8.14.3"; AGP_VER="8.9.1"
@@ -290,9 +247,7 @@ jobs:
               GRADLE_VER="8.4"; AGP_VER="8.3.0"
             fi
           fi
-
           echo "📦 Gradle: $GRADLE_VER, AGP: $AGP_VER"
-
           if [ -f "android/gradle/wrapper/gradle-wrapper.properties" ]; then
             sed -i "s|distributionUrl=.*|distributionUrl=https\\://services.gradle.org/distributions/gradle-${GRADLE_VER}-all.zip|g" android/gradle/wrapper/gradle-wrapper.properties
           fi
@@ -314,6 +269,36 @@ jobs:
             grep -q "android.enableJetifier" android/gradle.properties || echo "android.enableJetifier=true" >> android/gradle.properties
           fi
           [ -f "android/gradlew" ] && chmod +x android/gradlew || true
+
+      # ==================== STEP KRUSIAL UNTUK MEMPERBAIKI ERROR PERMISSION ====================
+      - name: Fix Gradle Wrapper Permissions (CRITICAL FIX)
+        if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != '' && (steps.pg1.outcome == 'success' || steps.pg2.outcome == 'success' || steps.pg3.outcome == 'success')
+        working-directory: project
+        run: |
+          echo "🔧 Memperbaiki izin Gradle Wrapper..."
+          
+          # 1. Pastikan gradlew bisa dieksekusi
+          chmod +x android/gradlew
+          
+          # 2. Hapus cache gradle yang rusak (jika ada)
+          rm -rf $HOME/.gradle/wrapper/dists/ || true
+          
+          # 3. Pre-download Gradle menggunakan wrapper (ini akan mengunduh gradle ke cache)
+          echo "⬇️  Pre-downloading Gradle..."
+          (cd android && ./gradlew --version) || echo "Pre-download selesai dengan catatan"
+          
+          # 4. Perbaiki izin SEMUA file di dalam folder cache gradle
+          echo "🔐 Memperbaiki izin file di cache Gradle..."
+          chmod -R +x $HOME/.gradle/wrapper/dists/ 2>/dev/null || true
+          find $HOME/.gradle/wrapper/dists -type f -name "gradle" -exec chmod +x {} \; 2>/dev/null || true
+          find $HOME/.gradle/wrapper/dists -type f -name "*.sh" -exec chmod +x {} \; 2>/dev/null || true
+          
+          # 5. Verifikasi bahwa binary gradle sudah bisa dieksekusi
+          echo "✅ Verifikasi binary Gradle:"
+          find $HOME/.gradle/wrapper/dists -name "gradle" -type f -exec ls -la {} \; 2>/dev/null || echo "⚠️ Binary gradle tidak ditemukan (akan diunduh saat build)"
+          
+          echo "✅ Perbaikan izin selesai!"
+      # =========================================================================================
 
       # ========== BUILD APK ==========
       - name: Build APK Debug
