@@ -109,8 +109,8 @@ jobs:
         id: detect
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
         run: |
-          # 🔑 KUNCI PERBAIKAN: PAKSA MENGGUNAKAN FLUTTER 3.29.3
-          FLUTTER="3.29.3"
+          # 🔑 KUNCI PERBAIKAN: PAKSA MENGGUNAKAN FLUTTER 3.27.4
+          FLUTTER="3.27.4"
           echo "Detected Flutter: $FLUTTER"
           echo "fv=$FLUTTER" >> $GITHUB_OUTPUT
       # =========================================================
@@ -164,6 +164,15 @@ jobs:
         if: steps.s3.outcome == 'success'
         working-directory: project
         run: flutter pub get
+
+      # ==================== PRECACHE FLUTTER ENGINE ====================
+      - name: Precache Flutter Engine Artifacts
+        if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != '' && (steps.pg1.outcome == 'success' || steps.pg2.outcome == 'success' || steps.pg3.outcome == 'success')
+        run: |
+          echo "⬇️  Precache Flutter engine artifacts untuk Android..."
+          flutter precache --android
+          echo "✅ Precache selesai."
+      # =================================================================
 
       # ==================== INSTALL GRADLE GLOBAL ====================
       - name: Install Gradle 8.14.3 globally with proper permissions
