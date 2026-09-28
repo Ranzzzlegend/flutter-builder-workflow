@@ -104,16 +104,14 @@ jobs:
           fi
           rm -rf .dart_tool 2>/dev/null || true
 
-      # ========== STEP DETECT Flutter version (FIXED) ==========
+      # ========== STEP DETECT Flutter version ==========
       - name: Detect Flutter version from pubspec
         id: detect
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
         run: |
-          # 🔑 KUNCI PERBAIKAN: PAKSA MENGGUNAKAN FLUTTER 3.27.4
           FLUTTER="3.27.4"
           echo "Detected Flutter: $FLUTTER"
           echo "fv=$FLUTTER" >> $GITHUB_OUTPUT
-      # =========================================================
 
       - name: Setup Flutter detected version
         id: s1
@@ -165,14 +163,37 @@ jobs:
         working-directory: project
         run: flutter pub get
 
-      # ==================== PRECACHE FLUTTER ENGINE ====================
-      - name: Precache Flutter Engine Artifacts
+      # ==================== PATCH settings.gradle (KUNCI PERBAIKAN) ====================
+      - name: Patch settings.gradle to include Flutter Maven repo
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != '' && (steps.pg1.outcome == 'success' || steps.pg2.outcome == 'success' || steps.pg3.outcome == 'success')
+        working-directory: project
         run: |
-          echo "⬇️  Precache Flutter engine artifacts untuk Android..."
-          flutter precache --android
-          echo "✅ Precache selesai."
-      # =================================================================
+          echo "🔧 Mem-patch settings.gradle untuk menambahkan repositori Flutter..."
+          
+          SETTINGS_FILE="android/settings.gradle"
+          if [ ! -f "$SETTINGS_FILE" ]; then
+            SETTINGS_FILE="android/settings.gradle.kts"
+          fi
+          
+          echo "File yang dipatch: $SETTINGS_FILE"
+          
+          # Tambahkan repositori download.flutter.io ke dependencyResolutionManagement
+          if grep -q "download.flutter.io" "$SETTINGS_FILE"; then
+            echo "✅ Repositori sudah ada, tidak perlu patch."
+          else
+            # Cari baris 'mavenCentral()' atau 'google()' di dalam dependencyResolutionManagement
+            # dan tambahkan repositori Flutter setelahnya.
+            if [[ "$SETTINGS_FILE" == *.kts ]]; then
+              sed -i '/dependencyResolutionManagement/,/repositoriesMode/s|mavenCentral()|mavenCentral()\n        maven { url = uri("https://storage.googleapis.com/download.flutter.io") }|' "$SETTINGS_FILE"
+            else
+              sed -i '/dependencyResolutionManagement/,/repositoriesMode/s|mavenCentral()|mavenCentral()\n        maven { url "https://storage.googleapis.com/download.flutter.io" }|' "$SETTINGS_FILE"
+            fi
+            echo "✅ Repositori download.flutter.io berhasil ditambahkan."
+          fi
+          
+          echo "=== Isi $SETTINGS_FILE setelah patch ==="
+          cat "$SETTINGS_FILE"
+      # ==============================================================================
 
       # ==================== INSTALL GRADLE GLOBAL ====================
       - name: Install Gradle 8.14.3 globally with proper permissions
@@ -207,30 +228,6 @@ jobs:
           cat android/gradlew
           ls -la android/gradlew
 
-      # ========== STEP GRADLE ADAPTIVE ==========
-      - name: Setup Gradle and AGP adaptive
-        if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != '' && (steps.pg1.outcome == 'success' || steps.pg2.outcome == 'success' || steps.pg3.outcome == 'success')
-        working-directory: project
-        run: |
-          echo "📦 Memastikan AGP version yang kompatibel..."
-          if [ -f "android/build.gradle" ]; then
-            sed -i "s|com.android.tools.build:gradle:[0-9.]*|com.android.tools.build:gradle:8.9.1|g" android/build.gradle
-          fi
-          if [ -f "android/build.gradle.kts" ]; then
-            sed -i "s|com.android.tools.build:gradle:[0-9.]*|com.android.tools.build:gradle:8.9.1|g" android/build.gradle.kts
-            sed -i "s|id(\"com.android.application\") version \"[0-9.]*\"|id(\"com.android.application\") version \"8.9.1\"|g" android/build.gradle.kts 2>/dev/null || true
-          fi
-          if [ -f "android/app/build.gradle" ]; then
-            grep -q "namespace" android/app/build.gradle || sed -i '/android {/a\    namespace "com.example.app"' android/app/build.gradle
-          fi
-          if [ -f "android/app/build.gradle.kts" ]; then
-            grep -q "namespace" android/app/build.gradle.kts || sed -i '/android {/a\    namespace("com.example.app")' android/app/build.gradle.kts
-          fi
-          if [ -f "android/gradle.properties" ]; then
-            grep -q "android.useAndroidX" android/gradle.properties || echo "android.useAndroidX=true" >> android/gradle.properties
-            grep -q "android.enableJetifier" android/gradle.properties || echo "android.enableJetifier=true" >> android/gradle.properties
-          fi
-
       # ==================== FIX VERSIONCODE ====================
       - name: Patch app/build.gradle version code
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != '' && (steps.pg1.outcome == 'success' || steps.pg2.outcome == 'success' || steps.pg3.outcome == 'success')
@@ -239,8 +236,6 @@ jobs:
           echo "🔧 Memperbaiki versionCode dan versionName..."
           sed -i 's/versionCode flutter\.versionCode/versionCode 1/g' android/app/build.gradle
           sed -i 's/versionName flutter\.versionName/versionName "1.0.0"/g' android/app/build.gradle
-          sed -i 's/versionCode flutterVersionCode\.toInteger()/versionCode 1/g' android/app/build.gradle
-          sed -i 's/versionName flutterVersionName/versionName "1.0.0"/g' android/app/build.gradle
           sed -i '/flutter\.versionCode/d' android/app/build.gradle
           sed -i '/flutter\.versionName/d' android/app/build.gradle
           echo "✅ Perbaikan versionCode selesai."
