@@ -185,7 +185,7 @@ jobs:
         working-directory: project
         run: flutter pub get
 
-      # ========== STEP GRADLE ADAPTIVE (DIPERBAIKI) ==========
+      # ========== STEP GRADLE ADAPTIVE ==========
       - name: Setup Gradle and AGP adaptive
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != '' && (steps.pg1.outcome == 'success' || steps.pg2.outcome == 'success' || steps.pg3.outcome == 'success')
         working-directory: project
@@ -221,7 +221,26 @@ jobs:
           fi
           [ -f "android/gradlew" ] && chmod +x android/gradlew || true
 
-      # ==================== STEP KRUSIAL: FIX PERMISSION & VERSION ====================
+      # ==================== STEP BARU: FIX VERSIONCODE ====================
+      - name: Patch app/build.gradle version code
+        if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != '' && (steps.pg1.outcome == 'success' || steps.pg2.outcome == 'success' || steps.pg3.outcome == 'success')
+        working-directory: project
+        run: |
+          echo "🔧 Memperbaiki versionCode dan versionName di app/build.gradle..."
+          # Ganti sintaks yang salah dengan nilai hardcoded yang aman
+          sed -i 's/versionCode flutter\.versionCode/versionCode 1/g' android/app/build.gradle
+          sed -i 's/versionName flutter\.versionName/versionName "1.0.0"/g' android/app/build.gradle
+          sed -i 's/versionCode flutterVersionCode\.toInteger()/versionCode 1/g' android/app/build.gradle
+          sed -i 's/versionName flutterVersionName/versionName "1.0.0"/g' android/app/build.gradle
+          
+          # Hapus baris yang mengandung flutter.versionCode/Name jika masih ada
+          sed -i '/flutter\.versionCode/d' android/app/build.gradle
+          sed -i '/flutter\.versionName/d' android/app/build.gradle
+          
+          echo "✅ Perbaikan versionCode selesai."
+      # ===================================================================
+
+      # ==================== STEP KRUSIAL: FIX PERMISSION ====================
       - name: Fix Gradle Wrapper Permissions (CRITICAL FIX)
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != '' && (steps.pg1.outcome == 'success' || steps.pg2.outcome == 'success' || steps.pg3.outcome == 'success')
         working-directory: project
@@ -243,10 +262,6 @@ jobs:
           chmod -R +x $HOME/.gradle/ 2>/dev/null || true
           find $HOME/.gradle -type f -name "gradle" -exec chmod +x {} \; 2>/dev/null || true
           find $HOME/.gradle -type f -name "*.sh" -exec chmod +x {} \; 2>/dev/null || true
-          
-          # 5. Verifikasi bahwa binary gradle sudah bisa dieksekusi
-          echo "✅ Verifikasi binary Gradle:"
-          find $HOME/.gradle -name "gradle" -type f -exec ls -la {} \; 2>/dev/null || echo "⚠️ Binary gradle tidak ditemukan"
           
           echo "✅ Perbaikan izin selesai!"
       # ===================================================================
