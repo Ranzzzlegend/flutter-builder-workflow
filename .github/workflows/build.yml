@@ -163,36 +163,34 @@ jobs:
         working-directory: project
         run: flutter pub get
 
-      # ==================== PATCH settings.gradle (KUNCI PERBAIKAN) ====================
-      - name: Patch settings.gradle to include Flutter Maven repo
+      # ==================== PATCH build.gradle (KUNCI PERBAIKAN UTAMA) ====================
+      - name: Patch build.gradle to include Flutter Maven repo
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != '' && (steps.pg1.outcome == 'success' || steps.pg2.outcome == 'success' || steps.pg3.outcome == 'success')
         working-directory: project
         run: |
-          echo "🔧 Mem-patch settings.gradle untuk menambahkan repositori Flutter..."
+          echo "🔧 Mem-patch android/build.gradle untuk menambahkan repositori Flutter..."
           
-          SETTINGS_FILE="android/settings.gradle"
-          if [ ! -f "$SETTINGS_FILE" ]; then
-            SETTINGS_FILE="android/settings.gradle.kts"
+          BUILD_FILE="android/build.gradle"
+          if [ ! -f "$BUILD_FILE" ]; then
+            BUILD_FILE="android/build.gradle.kts"
           fi
           
-          echo "File yang dipatch: $SETTINGS_FILE"
+          echo "File yang dipatch: $BUILD_FILE"
           
-          # Tambahkan repositori download.flutter.io ke dependencyResolutionManagement
-          if grep -q "download.flutter.io" "$SETTINGS_FILE"; then
+          # Tambahkan repositori download.flutter.io ke allprojects.repositories
+          if grep -q "download.flutter.io" "$BUILD_FILE"; then
             echo "✅ Repositori sudah ada, tidak perlu patch."
           else
-            # Cari baris 'mavenCentral()' atau 'google()' di dalam dependencyResolutionManagement
-            # dan tambahkan repositori Flutter setelahnya.
-            if [[ "$SETTINGS_FILE" == *.kts ]]; then
-              sed -i '/dependencyResolutionManagement/,/repositoriesMode/s|mavenCentral()|mavenCentral()\n        maven { url = uri("https://storage.googleapis.com/download.flutter.io") }|' "$SETTINGS_FILE"
+            if [[ "$BUILD_FILE" == *.kts ]]; then
+              sed -i '/allprojects {/,/repositories {/s|repositories {|repositories {\n        maven { url = uri("https://storage.googleapis.com/download.flutter.io") }|' "$BUILD_FILE"
             else
-              sed -i '/dependencyResolutionManagement/,/repositoriesMode/s|mavenCentral()|mavenCentral()\n        maven { url "https://storage.googleapis.com/download.flutter.io" }|' "$SETTINGS_FILE"
+              sed -i '/allprojects {/,/repositories {/s|repositories {|repositories {\n        maven { url "https://storage.googleapis.com/download.flutter.io" }|' "$BUILD_FILE"
             fi
             echo "✅ Repositori download.flutter.io berhasil ditambahkan."
           fi
           
-          echo "=== Isi $SETTINGS_FILE setelah patch ==="
-          cat "$SETTINGS_FILE"
+          echo "=== Isi $BUILD_FILE setelah patch ==="
+          cat "$BUILD_FILE"
       # ==============================================================================
 
       # ==================== INSTALL GRADLE GLOBAL ====================
