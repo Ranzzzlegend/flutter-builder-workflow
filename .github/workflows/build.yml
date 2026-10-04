@@ -90,26 +90,117 @@ jobs:
           echo ""
           echo "=== pubspec.yaml ASLI (sebelum patch) ==="
           cat project/pubspec.yaml || true
+          echo ""
+          echo "=== Cek pubspec.lock ==="
+          ls -la project/pubspec.lock 2>/dev/null || echo "Tidak ada pubspec.lock"
 
-      # ========== STEP AUTO-PATCH ==========
+      # ========== STEP AUTO-PATCH: Hapus lock + Force package fix ==========
       - name: Auto-patch project (hapus lock + force packages)
         id: patch
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
         working-directory: project
         run: |
           echo "🔧 Auto-patch project..."
+
+          # 1) HAPUS pubspec.lock (paksa resolve ulang)
           if [ -f "pubspec.lock" ]; then
             echo "🗑️  Hapus pubspec.lock (paksa resolve ulang)..."
             rm -f pubspec.lock
           fi
+
+          # 2) Hapus .dart_tool cache jika ada
           rm -rf .dart_tool 2>/dev/null || true
+
+          # 3) FORCE package overrides untuk package yang problematic
+          python3 << 'PYEOF'
+          import re
+
+          with open('pubspec.yaml', 'r', encoding='utf-8') as f:
+              content = f.read().replace('\r\n', '\n').replace('\r', '\n')
+
+          # Fixes yang kita mau: exact version (bukan ^)
+          fixes = {
+              'dynamic_color': '1.7.0',           # 1.9.0+ pakai kotlin{} yang break
+              'font_awesome_flutter': '10.9.1',   # fix IconData final class
+          }
+
+          lines = content.split('\n')
+          result = []
+          applied = []
+
+          # Pass 1: override di dependencies section
+          for line in lines:
+              matched = False
+              for pkg, ver in fixes.items():
+                  pattern = rf'^(\s{{2}}){re.escape(pkg)}:\s*\S+'
+                  m = re.match(pattern, line)
+                  if m:
+                      result.append(f'  {pkg}: {ver}')
+                      applied.append(f'{pkg} → {ver}')
+                      matched = True
+                      break
+              if not matched:
+                  result.append(line)
+
+          content = '\n'.join(result)
+
+          # Pass 2: tambahkan dependency_overrides di akhir
+          # Hapus dependency_overrides lama kalau ada
+          content = re.sub(r'\ndependency_overrides:.*?(?=\n\S|\Z)', '\n', content, flags=re.DOTALL)
+
+          # Append dependency_overrides baru
+          override_block = '\ndependency_overrides:\n'
+          for pkg, ver in fixes.items():
+              override_block += f'  {pkg}: {ver}\n'
+
+          content = content.rstrip() + '\n' + override_block
+
+          with open('pubspec.yaml', 'w', encoding='utf-8') as f:
+              f.write(content)
+
+          print("✅ Fixes applied:")
+          for a in applied:
+              print(f"   - {a}")
+          print("✅ dependency_overrides ditambahkan")
+          PYEOF
+
+          echo ""
+          echo "=== pubspec.yaml SETELAH patch ==="
+          cat pubspec.yaml
 
       # ========== STEP DETECT Flutter version ==========
       - name: Detect Flutter version from pubspec
         id: detect
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
         run: |
-          FLUTTER="3.27.4"
+          if [ ! -f "project/pubspec.yaml" ]; then
+            echo "fv=3.29.3" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          SDK=$(grep -E '^[[:space:]]+sdk:' project/pubspec.yaml | head -1 | sed 's/.*sdk:[[:space:]]*//' | tr -d '"' | tr -d "'" | tr -d ' ')
+          echo "SDK: [$SDK]"
+
+          MIN=$(echo "$SDK" | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)
+          if [ -z "$MIN" ]; then MIN="3.5.0"; fi
+          echo "Min SDK: $MIN"
+
+          MAJOR=$(echo "$MIN" | cut -d. -f1)
+          MINOR=$(echo "$MIN" | cut -d. -f2)
+
+          FLUTTER="3.29.3"
+          if [ "$MAJOR" -ge 4 ]; then FLUTTER="3.47.5"
+          elif [ "$MAJOR" -eq 3 ]; then
+            if [ "$MINOR" -ge 10 ]; then FLUTTER="3.47.5"
+            elif [ "$MINOR" -ge 9 ]; then FLUTTER="3.41.5"
+            elif [ "$MINOR" -ge 8 ]; then FLUTTER="3.35.5"
+            elif [ "$MINOR" -ge 7 ]; then FLUTTER="3.29.3"
+            elif [ "$MINOR" -ge 6 ]; then FLUTTER="3.27.4"
+            elif [ "$MINOR" -ge 5 ]; then FLUTTER="3.24.5"
+            else FLUTTER="3.22.3"
+            fi
+          fi
+
           echo "Detected Flutter: $FLUTTER"
           echo "fv=$FLUTTER" >> $GITHUB_OUTPUT
 
@@ -126,7 +217,7 @@ jobs:
         if: steps.s1.outcome == 'success'
         run: flutter --version
 
-      # ========== STEP PUB GET ==========
+      # ========== STEP PUB GET dengan 3-level fallback ==========
       - name: Pub get attempt 1
         id: pg1
         if: steps.s1.outcome == 'success'
@@ -163,80 +254,66 @@ jobs:
         working-directory: project
         run: flutter pub get
 
-      # ==================== PATCH build.gradle (KUNCI PERBAIKAN UTAMA) ====================
-      - name: Patch build.gradle to include Flutter Maven repo
+      # ========== VERIFIKASI: cek versi dynamic_color yang ke-resolve ==========
+      - name: Verify resolved package versions
+        if: (steps.pg1.outcome == 'success' || steps.pg2.outcome == 'success' || steps.pg3.outcome == 'success')
+        working-directory: project
+        run: |
+          echo "=== Cek dynamic_color yang ter-resolve ==="
+          grep -A 2 "dynamic_color:" pubspec.lock 2>/dev/null | head -10 || echo "Tidak ditemukan di lock"
+          echo ""
+          echo "=== Cek font_awesome_flutter yang ter-resolve ==="
+          grep -A 2 "font_awesome_flutter:" pubspec.lock 2>/dev/null | head -10 || echo "Tidak ditemukan di lock"
+
+      # ========== STEP GRADLE + AGP adaptive ==========
+      - name: Setup Gradle and AGP adaptive
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != '' && (steps.pg1.outcome == 'success' || steps.pg2.outcome == 'success' || steps.pg3.outcome == 'success')
         working-directory: project
         run: |
-          echo "🔧 Mem-patch android/build.gradle untuk menambahkan repositori Flutter..."
-          
-          BUILD_FILE="android/build.gradle"
-          if [ ! -f "$BUILD_FILE" ]; then
-            BUILD_FILE="android/build.gradle.kts"
-          fi
-          
-          echo "File yang dipatch: $BUILD_FILE"
-          
-          # Tambahkan repositori download.flutter.io ke allprojects.repositories
-          if grep -q "download.flutter.io" "$BUILD_FILE"; then
-            echo "✅ Repositori sudah ada, tidak perlu patch."
-          else
-            if [[ "$BUILD_FILE" == *.kts ]]; then
-              sed -i '/allprojects {/,/repositories {/s|repositories {|repositories {\n        maven { url = uri("https://storage.googleapis.com/download.flutter.io") }|' "$BUILD_FILE"
+          FLUTTER_VER=$(flutter --version 2>/dev/null | head -1 | awk '{print $2}')
+          echo "Flutter sekarang: $FLUTTER_VER"
+
+          GRADLE_VER="8.11.1"
+          AGP_VER="8.7.3"
+
+          FM=$(echo "$FLUTTER_VER" | cut -d. -f1)
+          Fm=$(echo "$FLUTTER_VER" | cut -d. -f2)
+
+          if [ "$FM" = "3" ]; then
+            if [ "$Fm" -ge 33 ]; then
+              GRADLE_VER="8.14.3"; AGP_VER="8.9.1"
+            elif [ "$Fm" -ge 28 ]; then
+              GRADLE_VER="8.11.1"; AGP_VER="8.7.3"
+            elif [ "$Fm" -ge 25 ]; then
+              GRADLE_VER="8.9"; AGP_VER="8.5.2"
             else
-              sed -i '/allprojects {/,/repositories {/s|repositories {|repositories {\n        maven { url "https://storage.googleapis.com/download.flutter.io" }|' "$BUILD_FILE"
+              GRADLE_VER="8.4"; AGP_VER="8.3.0"
             fi
-            echo "✅ Repositori download.flutter.io berhasil ditambahkan."
           fi
-          
-          echo "=== Isi $BUILD_FILE setelah patch ==="
-          cat "$BUILD_FILE"
-      # ==============================================================================
 
-      # ==================== INSTALL GRADLE GLOBAL ====================
-      - name: Install Gradle 8.14.3 globally with proper permissions
-        if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != '' && (steps.pg1.outcome == 'success' || steps.pg2.outcome == 'success' || steps.pg3.outcome == 'success')
-        run: |
-          echo "🔧 Menginstall Gradle 8.14.3 secara global..."
-          cd /tmp
-          wget -q "https://services.gradle.org/distributions/gradle-8.14.3-bin.zip" -O gradle.zip
-          unzip -q gradle.zip
-          sudo mkdir -p /opt/gradle
-          sudo mv gradle-8.14.3 /opt/gradle/
-          sudo chmod -R 755 /opt/gradle/gradle-8.14.3/
-          sudo chmod +x /opt/gradle/gradle-8.14.3/bin/gradle
-          echo "✅ Verifikasi Gradle global:"
-          /opt/gradle/gradle-8.14.3/bin/gradle --version
+          echo "📦 Gradle: $GRADLE_VER, AGP: $AGP_VER"
 
-      # ==================== OVERRIDE gradlew ====================
-      - name: Override gradlew with system gradle wrapper
-        if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != '' && (steps.pg1.outcome == 'success' || steps.pg2.outcome == 'success' || steps.pg3.outcome == 'success')
-        working-directory: project
-        run: |
-          echo "🔧 Mengganti gradlew dengan script pemanggil Gradle global..."
-          if [ -f "android/gradlew" ]; then
-            cp android/gradlew android/gradlew.bak
+          if [ -f "android/gradle/wrapper/gradle-wrapper.properties" ]; then
+            sed -i "s|distributionUrl=.*|distributionUrl=https\\://services.gradle.org/distributions/gradle-${GRADLE_VER}-all.zip|g" android/gradle/wrapper/gradle-wrapper.properties
           fi
-          cat > android/gradlew << 'GRADLEW_EOF'
-          #!/bin/bash
-          exec /opt/gradle/gradle-8.14.3/bin/gradle "$@"
-          GRADLEW_EOF
-          chmod +x android/gradlew
-          echo "✅ Verifikasi gradlew baru:"
-          cat android/gradlew
-          ls -la android/gradlew
-
-      # ==================== FIX VERSIONCODE ====================
-      - name: Patch app/build.gradle version code
-        if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != '' && (steps.pg1.outcome == 'success' || steps.pg2.outcome == 'success' || steps.pg3.outcome == 'success')
-        working-directory: project
-        run: |
-          echo "🔧 Memperbaiki versionCode dan versionName..."
-          sed -i 's/versionCode flutter\.versionCode/versionCode 1/g' android/app/build.gradle
-          sed -i 's/versionName flutter\.versionName/versionName "1.0.0"/g' android/app/build.gradle
-          sed -i '/flutter\.versionCode/d' android/app/build.gradle
-          sed -i '/flutter\.versionName/d' android/app/build.gradle
-          echo "✅ Perbaikan versionCode selesai."
+          if [ -f "android/build.gradle" ]; then
+            sed -i "s|com.android.tools.build:gradle:[0-9.]*|com.android.tools.build:gradle:${AGP_VER}|g" android/build.gradle
+          fi
+          if [ -f "android/build.gradle.kts" ]; then
+            sed -i "s|com.android.tools.build:gradle:[0-9.]*|com.android.tools.build:gradle:${AGP_VER}|g" android/build.gradle.kts
+            sed -i "s|id(\"com.android.application\") version \"[0-9.]*\"|id(\"com.android.application\") version \"${AGP_VER}\"|g" android/build.gradle.kts 2>/dev/null || true
+          fi
+          if [ -f "android/app/build.gradle" ]; then
+            grep -q "namespace" android/app/build.gradle || sed -i '/android {/a\    namespace "com.example.app"' android/app/build.gradle
+          fi
+          if [ -f "android/app/build.gradle.kts" ]; then
+            grep -q "namespace" android/app/build.gradle.kts || sed -i '/android {/a\    namespace("com.example.app")' android/app/build.gradle.kts
+          fi
+          if [ -f "android/gradle.properties" ]; then
+            grep -q "android.useAndroidX" android/gradle.properties || echo "android.useAndroidX=true" >> android/gradle.properties
+            grep -q "android.enableJetifier" android/gradle.properties || echo "android.enableJetifier=true" >> android/gradle.properties
+          fi
+          [ -f "android/gradlew" ] && chmod +x android/gradlew || true
 
       # ========== BUILD APK ==========
       - name: Build APK Debug
@@ -263,4 +340,4 @@ jobs:
 
       - name: Cleanup
         if: always()
-        run: rm -rf project web2apk webapp.apk project.zip /tmp/gradle* || true
+        run: rm -rf project web2apk webapp.apk project.zip || true
