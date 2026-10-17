@@ -1,13 +1,47 @@
-name: Build VANTA APK
+name: Flutter Build and Web2APK
 
 on:
   workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Jenis build'
+        required: true
+        default: 'release'
+        type: choice
+        options:
+          - debug
+          - release
+          - web2apk
+          - generic
+      app_name:
+        description: 'Nama Aplikasi'
+        required: true
+        default: 'MyApp'
+      package_name:
+        description: 'Package Name'
+        required: false
+        default: 'com.example.app'
+      source_zip_url:
+        description: 'URL ZIP project'
+        required: false
+        default: ''
+      url:
+        description: 'URL Website'
+        required: false
+        default: ''
+      icon_url:
+        description: 'URL Icon'
+        required: false
+        default: ''
 
 jobs:
   build:
+    name: Build APK
     runs-on: ubuntu-latest
+    timeout-minutes: 60
+
     steps:
-      - name: Checkout Code
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Setup Java 17
@@ -16,37 +50,148 @@ jobs:
           distribution: 'zulu'
           java-version: '17'
 
-      - name: Setup Flutter 3.27.4
+      # ========== WEB2APK PATH ==========
+      - name: Install web2apk dependencies
+        if: github.event.inputs.build_type == 'web2apk'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget unzip gradle
+          wget -q -O web2apk.zip https://github.com/GoogleChromeLabs/web2apk/releases/latest/download/web2apk.zip || echo "skip"
+          if [ -f web2apk.zip ]; then unzip -o web2apk.zip -d web2apk; chmod +x web2apk/web2apk || true; fi
+
+      - name: Web2APK Build
+        if: github.event.inputs.build_type == 'web2apk'
+        run: |
+          if [ -f web2apk/web2apk ]; then
+            ./web2apk/web2apk --url "${{ github.event.inputs.url }}" --name "${{ github.event.inputs.app_name }}" --package "${{ github.event.inputs.package_name }}" --icon "${{ github.event.inputs.icon_url }}" --output webapp.apk || echo "web2apk failed"
+          else
+            echo "web2apk binary missing"
+            touch webapp.apk
+          fi
+        continue-on-error: true
+
+      # ========== FLUTTER BUILD PATH ==========
+      - name: Download Flutter project ZIP
+        if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
+        run: |
+          wget -O project.zip "${{ github.event.inputs.source_zip_url }}"
+          mkdir -p project
+          unzip -o project.zip -d project > /dev/null
+          if [ ! -f "project/pubspec.yaml" ]; then
+            SUB=$(find project -maxdepth 3 -name pubspec.yaml -type f | head -1 | xargs dirname 2>/dev/null)
+            if [ -n "$SUB" ] && [ "$SUB" != "project" ]; then
+              shopt -s dotglob
+              mv "$SUB"/* project/ 2>/dev/null || true
+              shopt -u dotglob
+            fi
+          fi
+          echo "=== Project folder ==="
+          ls -la project/
+          echo ""
+          echo "=== pubspec.yaml ==="
+          cat project/pubspec.yaml || true
+
+      # ========== STEP 1: PAKSA FLUTTER STABIL (ANTI ERROR FLAME) ==========
+      # Kita tidak lagi mendeteksi versi otomatis, kita paksa 3.27.4
+      # karena versi ini terbukti paling stabil untuk Flame & Forge2D
+      - name: Setup Flutter Fixed Version
+        id: s1
+        if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
         uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.27.4'
           channel: 'stable'
           cache: true
 
-      - name: Install Gradle 8.14.3 Globally
-        run: |
-          sudo wget -q https://services.gradle.org/distributions/gradle-8.14.3-bin.zip
-          sudo unzip -q gradle-8.14.3-bin.zip -d /opt/
-          sudo chmod +x /opt/gradle-8.14.3/bin/gradle
-          echo "Gradle Installed!"
+      - name: Show Flutter version
+        if: steps.s1.outcome == 'success'
+        run: flutter --version
 
-      - name: Flutter Pub Get
+      # ========== STEP 2: PUB GET ==========
+      - name: Pub get
+        if: steps.s1.outcome == 'success'
+        working-directory: project
         run: flutter pub get
 
-      - name: Override Local Gradlew (Anti Permission Denied)
+      # ========== STEP 3: INSTALL GRADLE GLOBAL (ANTI PERMISSION DENIED) ==========
+      - name: Install Gradle 8.14.3 Globally
+        if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != '' && steps.s1.outcome == 'success'
         run: |
-          # Ganti gradlew lokal dengan pemanggil Gradle global
-          cat > android/gradlew << 'EOF'
+          echo "🔧 Menginstall Gradle 8.14.3..."
+          cd /tmp
+          wget -q "https://services.gradle.org/distributions/gradle-8.14.3-bin.zip" -O gradle.zip
+          unzip -q gradle.zip
+          sudo mkdir -p /opt/gradle
+          sudo mv gradle-8.14.3 /opt/gradle/
+          sudo chmod -R 755 /opt/gradle/gradle-8.14.3/
+          sudo chmod +x /opt/gradle/gradle-8.14.3/bin/gradle
+          /opt/gradle/gradle-8.14.3/bin/gradle --version
+
+      # ========== STEP 4: OVERRIDE GRADLEW ==========
+      - name: Override gradlew
+        if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != '' && steps.s1.outcome == 'success'
+        working-directory: project
+        run: |
+          echo "🔧 Mengganti gradlew..."
+          cat > android/gradlew << 'GRADLEW_EOF'
           #!/bin/bash
-          exec /opt/gradle-8.14.3/bin/gradle "$@"
-          EOF
+          exec /opt/gradle/gradle-8.14.3/bin/gradle "$@"
+          GRADLEW_EOF
           chmod +x android/gradlew
 
-      - name: Build Release APK
-        run: flutter build apk --release
+      # ========== STEP 5: PATCH BUILD.GRADLE (ANTI ERROR MAVEN REPO) ==========
+      - name: Patch build.gradle for Flutter Maven Repo
+        if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != '' && steps.s1.outcome == 'success'
+        working-directory: project
+        run: |
+          echo "🔧 Mem-patch android/build.gradle..."
+          BUILD_FILE="android/build.gradle"
+          if [ ! -f "$BUILD_FILE" ]; then BUILD_FILE="android/build.gradle.kts"; fi
+          
+          if grep -q "download.flutter.io" "$BUILD_FILE"; then
+            echo "✅ Repositori sudah ada."
+          else
+            if [[ "$BUILD_FILE" == *.kts ]]; then
+              sed -i '/allprojects {/,/repositories {/s|repositories {|repositories {\n        maven { url = uri("https://storage.googleapis.com/download.flutter.io") }|' "$BUILD_FILE"
+            else
+              sed -i '/allprojects {/,/repositories {/s|repositories {|repositories {\n        maven { url "https://storage.googleapis.com/download.flutter.io" }|' "$BUILD_FILE"
+            fi
+            echo "✅ Repositori berhasil ditambahkan."
+          fi
 
-      - name: Upload APK
+      # ========== STEP 6: PATCH VERSION CODE ==========
+      - name: Patch versionCode
+        if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != '' && steps.s1.outcome == 'success'
+        working-directory: project
+        run: |
+          if [ -f "android/app/build.gradle" ]; then
+            sed -i 's/versionCode flutter\.versionCode/versionCode 1/g' android/app/build.gradle
+            sed -i 's/versionName flutter\.versionName/versionName "1.0.0"/g' android/app/build.gradle
+          fi
+
+      # ========== STEP 7: BUILD APK ==========
+      - name: Build APK Debug
+        if: github.event.inputs.build_type == 'debug' && github.event.inputs.source_zip_url != '' && steps.s1.outcome == 'success'
+        working-directory: project
+        run: flutter build apk --debug --target-platform android-arm,android-arm64 --android-skip-build-dependency-validation
+
+      - name: Build APK Release
+        if: (github.event.inputs.build_type == 'release' || github.event.inputs.build_type == 'generic') && github.event.inputs.source_zip_url != '' && steps.s1.outcome == 'success'
+        working-directory: project
+        run: flutter build apk --release --target-platform android-arm,android-arm64 --android-skip-build-dependency-validation
+
+      # ========== STEP 8: UPLOAD ==========
+      - name: Upload APK artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: VANTA-Release-APK
-          path: build/app/outputs/flutter-apk/app-release.apk
+          name: built-apk
+          path: |
+            project/build/app/outputs/flutter-apk/*.apk
+            webapp.apk
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Cleanup
+        if: always()
+        run: rm -rf project web2apk webapp.apk project.zip /tmp/gradle* || true
