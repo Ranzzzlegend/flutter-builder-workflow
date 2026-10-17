@@ -85,21 +85,82 @@ jobs:
               shopt -u dotglob
             fi
           fi
-          echo "=== Project folder ==="
-          ls -la project/
-          echo ""
-          echo "=== pubspec.yaml ==="
-          cat project/pubspec.yaml || true
 
-      # ========== STEP 1: PAKSA FLUTTER STABIL (ANTI ERROR FLAME) ==========
-      # Kita tidak lagi mendeteksi versi otomatis, kita paksa 3.27.4
-      # karena versi ini terbukti paling stabil untuk Flame & Forge2D
+      # ========== STEP 1: AUTO-PATCH PUBSPEC.YAML ==========
+      - name: Auto-Patch SDK Requirement
+        if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
+        working-directory: project
+        run: |
+          echo "🔧 Memaksa SDK requirement menjadi >=3.0.0 <4.0.0..."
+          sed -i 's|sdk:.*|sdk: ">=3.0.0 <4.0.0"|g' pubspec.yaml
+
+      # ========== STEP 2: FIX KOTLIN DSL SYNTAX (KUNCI PERBAIKAN) ==========
+      - name: Fix Kotlin DSL Syntax in settings.gradle.kts
+        if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
+        working-directory: project
+        run: |
+          echo "🔧 Menimpa settings.gradle.kts dengan sintaks Kotlin yang valid..."
+          cat > android/settings.gradle.kts << 'EOF'
+          pluginManagement {
+              val flutterSdkPath = run {
+                  val properties = java.util.Properties()
+                  file("local.properties").inputStream().use { properties.load(it) }
+                  val flutterSdkPath = properties.getProperty("flutter.sdk")
+                  require(flutterSdkPath != null) { "flutter.sdk not set in local.properties" }
+                  flutterSdkPath
+              }
+
+              includeBuild("$flutterSdkPath/packages/flutter_tools/gradle")
+
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+
+          plugins {
+              id("dev.flutter.flutter-plugin-loader") version "1.0.0"
+              id("com.android.application") version "8.9.1" apply false
+              id("org.jetbrains.kotlin.android") version "2.1.0" apply false
+          }
+
+          include(":app")
+          EOF
+
+          # Pastikan file build.gradle.kts juga valid
+          cat > android/build.gradle.kts << 'EOF'
+          allprojects {
+              repositories {
+                  google()
+                  mavenCentral()
+                  maven { url = uri("https://storage.googleapis.com/download.flutter.io") }
+              }
+          }
+
+          val newBuildDir: Directory = rootProject.layout.buildDirectory.dir("../../build").get()
+          rootProject.layout.buildDirectory.value(newBuildDir)
+
+          subprojects {
+              val newSubprojectBuildDir: Directory = newBuildDir.dir(project.name)
+              project.layout.buildDirectory.value(newSubprojectBuildDir)
+          }
+          subprojects {
+              project.evaluationDependsOn(":app")
+          }
+
+          tasks.register<Delete>("clean") {
+              delete(rootProject.layout.buildDirectory)
+          }
+          EOF
+
+      # ========== STEP 3: SETUP FLUTTER ==========
       - name: Setup Flutter Fixed Version
         id: s1
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.27.4'
+          flutter-version: '3.35.5'
           channel: 'stable'
           cache: true
 
@@ -107,13 +168,13 @@ jobs:
         if: steps.s1.outcome == 'success'
         run: flutter --version
 
-      # ========== STEP 2: PUB GET ==========
+      # ========== STEP 4: PUB GET ==========
       - name: Pub get
         if: steps.s1.outcome == 'success'
         working-directory: project
         run: flutter pub get
 
-      # ========== STEP 3: INSTALL GRADLE GLOBAL (ANTI PERMISSION DENIED) ==========
+      # ========== STEP 5: INSTALL GRADLE GLOBAL ==========
       - name: Install Gradle 8.14.3 Globally
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != '' && steps.s1.outcome == 'success'
         run: |
@@ -127,7 +188,7 @@ jobs:
           sudo chmod +x /opt/gradle/gradle-8.14.3/bin/gradle
           /opt/gradle/gradle-8.14.3/bin/gradle --version
 
-      # ========== STEP 4: OVERRIDE GRADLEW ==========
+      # ========== STEP 6: OVERRIDE GRADLEW ==========
       - name: Override gradlew
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != '' && steps.s1.outcome == 'success'
         working-directory: project
@@ -139,37 +200,20 @@ jobs:
           GRADLEW_EOF
           chmod +x android/gradlew
 
-      # ========== STEP 5: PATCH BUILD.GRADLE (ANTI ERROR MAVEN REPO) ==========
-      - name: Patch build.gradle for Flutter Maven Repo
-        if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != '' && steps.s1.outcome == 'success'
-        working-directory: project
-        run: |
-          echo "🔧 Mem-patch android/build.gradle..."
-          BUILD_FILE="android/build.gradle"
-          if [ ! -f "$BUILD_FILE" ]; then BUILD_FILE="android/build.gradle.kts"; fi
-          
-          if grep -q "download.flutter.io" "$BUILD_FILE"; then
-            echo "✅ Repositori sudah ada."
-          else
-            if [[ "$BUILD_FILE" == *.kts ]]; then
-              sed -i '/allprojects {/,/repositories {/s|repositories {|repositories {\n        maven { url = uri("https://storage.googleapis.com/download.flutter.io") }|' "$BUILD_FILE"
-            else
-              sed -i '/allprojects {/,/repositories {/s|repositories {|repositories {\n        maven { url "https://storage.googleapis.com/download.flutter.io" }|' "$BUILD_FILE"
-            fi
-            echo "✅ Repositori berhasil ditambahkan."
-          fi
-
-      # ========== STEP 6: PATCH VERSION CODE ==========
+      # ========== STEP 7: PATCH VERSION CODE ==========
       - name: Patch versionCode
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != '' && steps.s1.outcome == 'success'
         working-directory: project
         run: |
-          if [ -f "android/app/build.gradle" ]; then
+          if [ -f "android/app/build.gradle.kts" ]; then
+            sed -i 's/versionCode = flutter.versionCode/versionCode = 1/g' android/app/build.gradle.kts
+            sed -i 's/versionName = flutter.versionName/versionName = "1.0.0"/g' android/app/build.gradle.kts
+          elif [ -f "android/app/build.gradle" ]; then
             sed -i 's/versionCode flutter\.versionCode/versionCode 1/g' android/app/build.gradle
             sed -i 's/versionName flutter\.versionName/versionName "1.0.0"/g' android/app/build.gradle
           fi
 
-      # ========== STEP 7: BUILD APK ==========
+      # ========== STEP 8: BUILD APK ==========
       - name: Build APK Debug
         if: github.event.inputs.build_type == 'debug' && github.event.inputs.source_zip_url != '' && steps.s1.outcome == 'success'
         working-directory: project
@@ -180,7 +224,7 @@ jobs:
         working-directory: project
         run: flutter build apk --release --target-platform android-arm,android-arm64 --android-skip-build-dependency-validation
 
-      # ========== STEP 8: UPLOAD ==========
+      # ========== STEP 9: UPLOAD ==========
       - name: Upload APK artifact
         if: always()
         uses: actions/upload-artifact@v4
