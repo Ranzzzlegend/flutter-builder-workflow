@@ -107,11 +107,17 @@ jobs:
           PYEOF
 
       # ========== STEP 2: TOTAL REPLACEMENT GRADLE (GROOVY TO KOTLIN) ==========
-      - name: Fix All Android Gradle Files
+      - name: Fix All Android Gradle Files & XML Names
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
         working-directory: project
         run: |
-          echo "🔧 Memperbaiki total semua file Gradle..."
+          echo "🔧 Memperbaiki total semua file Gradle dan Resource XML..."
+          
+          # --- AUTO-FIX NAMA FILE XML YANG SALAH ---
+          if [ -f "android/app/src/main/res/xml/accessibility_service.config.xml" ]; then
+            mv "android/app/src/main/res/xml/accessibility_service.config.xml" "android/app/src/main/res/xml/accessibility_service_config.xml"
+            echo "✅ BERHASIL MEMPERBAIKI NAMA FILE XML (Titik diubah menjadi Garis Bawah)"
+          fi
           
           # Ambil nama package dari AndroidManifest agar tidak error
           PKG_NAME=$(grep -o 'package="[^"]*"' android/app/src/main/AndroidManifest.xml | head -1 | sed 's/package="//g' | sed 's/"//g' || echo "com.example.vanta")
@@ -166,7 +172,7 @@ jobs:
           }
           EOF
 
-          # 3. Fix app/build.gradle.kts (INI YANG ERROR DI LOG ANDA)
+          # 3. Fix app/build.gradle.kts (PASTIKAN minSdk = 24)
           cat > android/app/build.gradle.kts << EOF
           plugins {
               id("com.android.application")
@@ -186,7 +192,7 @@ jobs:
               }
               defaultConfig {
                   applicationId = "$PKG_NAME"
-                  minSdk = flutter.minSdkVersion
+                  minSdk = 24 // <--- WAJIB 24 UNTUK AKSESIBILITAS
                   targetSdk = flutter.targetSdkVersion
                   versionCode = 1
                   versionName = "1.0.0"
