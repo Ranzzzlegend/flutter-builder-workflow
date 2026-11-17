@@ -111,18 +111,40 @@ jobs:
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
         working-directory: project
         run: |
-          echo "🔧 Memperbaiki total semua file Gradle dan Resource XML..."
+          echo "🔧 Memperbaiki total semua file Gradle, Manifest, dan MainActivity..."
           
-          # --- AUTO-FIX NAMA FILE XML YANG SALAH ---
           if [ -f "android/app/src/main/res/xml/accessibility_service.config.xml" ]; then
             mv "android/app/src/main/res/xml/accessibility_service.config.xml" "android/app/src/main/res/xml/accessibility_service_config.xml"
             echo "✅ BERHASIL MEMPERBAIKI NAMA FILE XML (Titik diubah menjadi Garis Bawah)"
           fi
           
-          # Ambil nama package dari AndroidManifest agar tidak error
-          PKG_NAME=$(grep -o 'package="[^"]*"' android/app/src/main/AndroidManifest.xml | head -1 | sed 's/package="//g' | sed 's/"//g' || echo "com.example.vanta")
-          if [ -z "$PKG_NAME" ]; then PKG_NAME="com.example.vanta"; fi
+          # Ambil nama package dari build.gradle.kts (BUKAN manifest)
+          PKG_NAME=$(grep -o 'namespace = "[^"]*"' android/app/build.gradle.kts | head -1 | sed 's/namespace = "//g' | sed 's/"//g' || echo "")
+          if [ -z "$PKG_NAME" ]; then 
+            PKG_NAME=$(grep -o 'namespace "[^"]*"' android/app/build.gradle | head -1 | sed 's/namespace "//g' | sed 's/"//g' || echo "com.darklegend.app")
+          fi
           echo "📦 Menggunakan Package Name: $PKG_NAME"
+
+          # Pindahkan MainActivity.kt/java ke folder yang benar sesuai Package Name
+          PKG_PATH=$(echo $PKG_NAME | tr '.' '/')
+          mkdir -p "android/app/src/main/kotlin/$PKG_PATH"
+          mkdir -p "android/app/src/main/java/$PKG_PATH"
+          
+          # Cari file MainActivity di mana pun letaknya
+          FIND_KT=$(find android/app/src/main/kotlin -name "MainActivity.kt" | head -1)
+          FIND_JAVA=$(find android/app/src/main/java -name "MainActivity.java" | head -1)
+          
+          if [ -n "$FIND_KT" ]; then
+            mv "$FIND_KT" "android/app/src/main/kotlin/$PKG_PATH/MainActivity.kt"
+            sed -i "s/^package .*/package $PKG_NAME/" "android/app/src/main/kotlin/$PKG_PATH/MainActivity.kt"
+          elif [ -n "$FIND_JAVA" ]; then
+            mv "$FIND_JAVA" "android/app/src/main/java/$PKG_PATH/MainActivity.java"
+            sed -i "s/^package .*/package $PKG_NAME;/" "android/app/src/main/java/$PKG_PATH/MainActivity.java"
+          fi
+          
+          # Hapus folder lama yang menyesatkan (seperti com/example/vanta)
+          find android/app/src/main/kotlin -type d -empty -delete
+          find android/app/src/main/java -type d -empty -delete
 
           # 1. Fix settings.gradle.kts
           cat > android/settings.gradle.kts << 'EOF'
@@ -143,7 +165,7 @@ jobs:
           }
           plugins {
               id("dev.flutter.flutter-plugin-loader") version "1.0.0"
-              id("com.android.application") version "8.9.1" apply false
+              id("com.android.application") version "8.7.3" apply false
               id("org.jetbrains.kotlin.android") version "2.1.0" apply false
           }
           include(":app")
@@ -172,7 +194,7 @@ jobs:
           }
           EOF
 
-          # 3. Fix app/build.gradle.kts (PASTIKAN minSdk = 24)
+          # 3. Fix app/build.gradle.kts
           cat > android/app/build.gradle.kts << EOF
           plugins {
               id("com.android.application")
@@ -181,7 +203,7 @@ jobs:
           }
           android {
               namespace = "$PKG_NAME"
-              compileSdk = flutter.compileSdkVersion
+              compileSdk = 35
               ndkVersion = flutter.ndkVersion
               compileOptions {
                   sourceCompatibility = JavaVersion.VERSION_17
@@ -192,13 +214,15 @@ jobs:
               }
               defaultConfig {
                   applicationId = "$PKG_NAME"
-                  minSdk = 24 // <--- WAJIB 24 UNTUK AKSESIBILITAS
-                  targetSdk = flutter.targetSdkVersion
+                  minSdk = 23
+                  targetSdk = 35
                   versionCode = 1
-                  versionName = "1.0.0"
+                  versionName = "5.2.0"
               }
               buildTypes {
                   release {
+                      isMinifyEnabled = false
+                      isShrinkResources = false
                       signingConfig = signingConfigs.getByName("debug")
                   }
               }
@@ -208,7 +232,6 @@ jobs:
           }
           EOF
           
-          # Hapus file Groovy jika ada agar tidak bentrok
           rm -f android/app/build.gradle
           rm -f android/build.gradle
           rm -f android/settings.gradle
@@ -234,18 +257,18 @@ jobs:
         run: flutter pub get
 
       # ========== STEP 5: INSTALL GRADLE GLOBAL ==========
-      - name: Install Gradle 8.14.3 Globally
+      - name: Install Gradle 8.10.2 Globally
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != '' && steps.s1.outcome == 'success'
         run: |
-          echo "🔧 Menginstall Gradle 8.14.3..."
+          echo "🔧 Menginstall Gradle 8.10.2..."
           cd /tmp
-          wget -q "https://services.gradle.org/distributions/gradle-8.14.3-bin.zip" -O gradle.zip
+          wget -q "https://services.gradle.org/distributions/gradle-8.10.2-bin.zip" -O gradle.zip
           unzip -q gradle.zip
           sudo mkdir -p /opt/gradle
-          sudo mv gradle-8.14.3 /opt/gradle/
-          sudo chmod -R 755 /opt/gradle/gradle-8.14.3/
-          sudo chmod +x /opt/gradle/gradle-8.14.3/bin/gradle
-          /opt/gradle/gradle-8.14.3/bin/gradle --version
+          sudo mv gradle-8.10.2 /opt/gradle/
+          sudo chmod -R 755 /opt/gradle/gradle-8.10.2/
+          sudo chmod +x /opt/gradle/gradle-8.10.2/bin/gradle
+          /opt/gradle/gradle-8.10.2/bin/gradle --version
 
       # ========== STEP 6: OVERRIDE GRADLEW ==========
       - name: Override gradlew
@@ -255,7 +278,7 @@ jobs:
           echo "🔧 Mengganti gradlew..."
           cat > android/gradlew << 'GRADLEW_EOF'
           #!/bin/bash
-          exec /opt/gradle/gradle-8.14.3/bin/gradle "$@"
+          exec /opt/gradle/gradle-8.10.2/bin/gradle "$@"
           GRADLEW_EOF
           chmod +x android/gradlew
 
