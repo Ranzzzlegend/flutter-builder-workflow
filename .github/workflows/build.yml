@@ -106,47 +106,42 @@ jobs:
           print("✅ pubspec.yaml berhasil dipatch dengan aman.")
           PYEOF
 
-      # ========== STEP 2: TOTAL REPLACEMENT GRADLE (GROOVY TO KOTLIN) ==========
-      - name: Fix All Android Gradle Files & XML Names
+      # ========== STEP 2: FORCE JAVA MAINACTIVITY & GRADLE ==========
+      - name: Fix All Android Gradle Files & Force Java
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
         working-directory: project
         run: |
-          echo "🔧 Memperbaiki total semua file Gradle, Manifest, dan MainActivity..."
+          echo "🔧 Memperbaiki Gradle dan Memaksa Penggunaan Java untuk MainActivity..."
           
-          if [ -f "android/app/src/main/res/xml/accessibility_service.config.xml" ]; then
-            mv "android/app/src/main/res/xml/accessibility_service.config.xml" "android/app/src/main/res/xml/accessibility_service_config.xml"
-            echo "✅ BERHASIL MEMPERBAIKI NAMA FILE XML (Titik diubah menjadi Garis Bawah)"
-          fi
-          
-          # Ambil nama package dari build.gradle.kts (BUKAN manifest)
+          # Ambil nama package dari build.gradle.kts
           PKG_NAME=$(grep -o 'namespace = "[^"]*"' android/app/build.gradle.kts | head -1 | sed 's/namespace = "//g' | sed 's/"//g' || echo "")
           if [ -z "$PKG_NAME" ]; then 
             PKG_NAME=$(grep -o 'namespace "[^"]*"' android/app/build.gradle | head -1 | sed 's/namespace "//g' | sed 's/"//g' || echo "com.darklegend.app")
           fi
           echo "📦 Menggunakan Package Name: $PKG_NAME"
 
-          # Pindahkan MainActivity.kt/java ke folder yang benar sesuai Package Name
           PKG_PATH=$(echo $PKG_NAME | tr '.' '/')
-          mkdir -p "android/app/src/main/kotlin/$PKG_PATH"
           mkdir -p "android/app/src/main/java/$PKG_PATH"
           
-          # Cari file MainActivity di mana pun letaknya
-          FIND_KT=$(find android/app/src/main/kotlin -name "MainActivity.kt" | head -1)
-          FIND_JAVA=$(find android/app/src/main/java -name "MainActivity.java" | head -1)
+          # 1. Hapus semua file MainActivity.kt agar tidak bentrok
+          find android/app/src/main/kotlin -name "MainActivity.kt" -exec rm -f {} + 2>/dev/null || true
           
-          if [ -n "$FIND_KT" ]; then
-            mv "$FIND_KT" "android/app/src/main/kotlin/$PKG_PATH/MainActivity.kt"
-            sed -i "s/^package .*/package $PKG_NAME/" "android/app/src/main/kotlin/$PKG_PATH/MainActivity.kt"
-          elif [ -n "$FIND_JAVA" ]; then
-            mv "$FIND_JAVA" "android/app/src/main/java/$PKG_PATH/MainActivity.java"
-            sed -i "s/^package .*/package $PKG_NAME;/" "android/app/src/main/java/$PKG_PATH/MainActivity.java"
-          fi
-          
-          # Hapus folder lama yang menyesatkan (seperti com/example/vanta)
-          find android/app/src/main/kotlin -type d -empty -delete
-          find android/app/src/main/java -type d -empty -delete
+          # 2. Buat file MainActivity.java yang baru dan bersih
+          cat > "android/app/src/main/java/$PKG_PATH/MainActivity.java" << EOF
+          package $PKG_NAME;
 
-          # 1. Fix settings.gradle.kts
+          import io.flutter.embedding.android.FlutterActivity;
+
+          public class MainActivity extends FlutterActivity {
+          }
+          EOF
+          echo "✅ MainActivity.java berhasil dibuat/ditimpa."
+
+          # 3. Hapus folder lama yang menyesatkan
+          find android/app/src/main/kotlin -type d -empty -delete 2>/dev/null || true
+          find android/app/src/main/java -type d -empty -delete 2>/dev/null || true
+
+          # 4. Fix settings.gradle.kts
           cat > android/settings.gradle.kts << 'EOF'
           pluginManagement {
               val flutterSdkPath = run {
@@ -171,7 +166,7 @@ jobs:
           include(":app")
           EOF
 
-          # 2. Fix root build.gradle.kts
+          # 5. Fix root build.gradle.kts
           cat > android/build.gradle.kts << 'EOF'
           allprojects {
               repositories {
@@ -194,7 +189,7 @@ jobs:
           }
           EOF
 
-          # 3. Fix app/build.gradle.kts
+          # 6. Fix app/build.gradle.kts (Hapus kotlinOptions untuk Java murni)
           cat > android/app/build.gradle.kts << EOF
           plugins {
               id("com.android.application")
@@ -208,9 +203,6 @@ jobs:
               compileOptions {
                   sourceCompatibility = JavaVersion.VERSION_17
                   targetCompatibility = JavaVersion.VERSION_17
-              }
-              kotlinOptions {
-                  jvmTarget = "17"
               }
               defaultConfig {
                   applicationId = "$PKG_NAME"
