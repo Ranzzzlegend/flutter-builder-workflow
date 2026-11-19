@@ -141,7 +141,7 @@ jobs:
           find android/app/src/main/kotlin -type d -empty -delete 2>/dev/null || true
           find android/app/src/main/java -type d -empty -delete 2>/dev/null || true
 
-          # 4. Fix settings.gradle.kts
+          # 4. Fix settings.gradle.kts (Naikkan AGP ke 8.9.1)
           cat > android/settings.gradle.kts << 'EOF'
           pluginManagement {
               val flutterSdkPath = run {
@@ -160,7 +160,7 @@ jobs:
           }
           plugins {
               id("dev.flutter.flutter-plugin-loader") version "1.0.0"
-              id("com.android.application") version "8.7.3" apply false
+              id("com.android.application") version "8.9.1" apply false
               id("org.jetbrains.kotlin.android") version "2.1.0" apply false
           }
           include(":app")
@@ -189,7 +189,7 @@ jobs:
           }
           EOF
 
-          # 6. Fix app/build.gradle.kts (Hapus kotlinOptions untuk Java murni)
+          # 6. Fix app/build.gradle.kts (Naikkan compileSdk & targetSdk ke 36)
           cat > android/app/build.gradle.kts << EOF
           plugins {
               id("com.android.application")
@@ -198,7 +198,7 @@ jobs:
           }
           android {
               namespace = "$PKG_NAME"
-              compileSdk = 35
+              compileSdk = 36
               ndkVersion = flutter.ndkVersion
               compileOptions {
                   sourceCompatibility = JavaVersion.VERSION_17
@@ -207,7 +207,7 @@ jobs:
               defaultConfig {
                   applicationId = "$PKG_NAME"
                   minSdk = 23
-                  targetSdk = 35
+                  targetSdk = 36
                   versionCode = 1
                   versionName = "5.2.0"
               }
@@ -249,18 +249,18 @@ jobs:
         run: flutter pub get
 
       # ========== STEP 5: INSTALL GRADLE GLOBAL ==========
-      - name: Install Gradle 8.10.2 Globally
+      - name: Install Gradle 8.11.1 Globally
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != '' && steps.s1.outcome == 'success'
         run: |
-          echo "🔧 Menginstall Gradle 8.10.2..."
+          echo "🔧 Menginstall Gradle 8.11.1..."
           cd /tmp
-          wget -q "https://services.gradle.org/distributions/gradle-8.10.2-bin.zip" -O gradle.zip
+          wget -q "https://services.gradle.org/distributions/gradle-8.11.1-bin.zip" -O gradle.zip
           unzip -q gradle.zip
           sudo mkdir -p /opt/gradle
-          sudo mv gradle-8.10.2 /opt/gradle/
-          sudo chmod -R 755 /opt/gradle/gradle-8.10.2/
-          sudo chmod +x /opt/gradle/gradle-8.10.2/bin/gradle
-          /opt/gradle/gradle-8.10.2/bin/gradle --version
+          sudo mv gradle-8.11.1 /opt/gradle/
+          sudo chmod -R 755 /opt/gradle/gradle-8.11.1/
+          sudo chmod +x /opt/gradle/gradle-8.11.1/bin/gradle
+          /opt/gradle/gradle-8.11.1/bin/gradle --version
 
       # ========== STEP 6: OVERRIDE GRADLEW ==========
       - name: Override gradlew
@@ -270,7 +270,7 @@ jobs:
           echo "🔧 Mengganti gradlew..."
           cat > android/gradlew << 'GRADLEW_EOF'
           #!/bin/bash
-          exec /opt/gradle/gradle-8.10.2/bin/gradle "$@"
+          exec /opt/gradle/gradle-8.11.1/bin/gradle "$@"
           GRADLEW_EOF
           chmod +x android/gradlew
 
