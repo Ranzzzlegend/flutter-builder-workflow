@@ -106,27 +106,36 @@ jobs:
           print("✅ pubspec.yaml berhasil dipatch dengan aman.")
           PYEOF
 
-      # ========== STEP 2: FORCE JAVA MAINACTIVITY & GRADLE ==========
+      # ========== STEP 2: FIX ANDROID CONFIG & KEYSTORE ==========
       - name: Fix All Android Gradle Files & Force Java
         if: github.event.inputs.build_type != 'web2apk' && github.event.inputs.source_zip_url != ''
         working-directory: project
         run: |
           echo "🔧 Memperbaiki Gradle dan Memaksa Penggunaan Java untuk MainActivity..."
           
-          # Ambil nama package dari build.gradle.kts
+          # 1. AUTO-FIX NAMA FILE XML YANG SALAH
+          if [ -f "android/app/src/main/res/xml/accessibility_service.config.xml" ]; then
+            mv "android/app/src/main/res/xml/accessibility_service.config.xml" "android/app/src/main/res/xml/accessibility_service_config.xml"
+            echo "✅ BERHASIL MEMPERBAIKI NAMA FILE XML"
+          fi
+
+          # 2. GENERATE KEYSTORE OTOMATIS (Mencegah APK tidak bisa diinstal karena signature beda)
+          if [ ! -f "android/app/debug.keystore" ]; then
+            keytool -genkey -v -keystore android/app/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          fi
+          
+          # 3. AMBIL NAMA PACKAGE DARI GRADLE (Bukan dari Manifest)
           PKG_NAME=$(grep -o 'namespace = "[^"]*"' android/app/build.gradle.kts | head -1 | sed 's/namespace = "//g' | sed 's/"//g' || echo "")
           if [ -z "$PKG_NAME" ]; then 
             PKG_NAME=$(grep -o 'namespace "[^"]*"' android/app/build.gradle | head -1 | sed 's/namespace "//g' | sed 's/"//g' || echo "com.darklegend.app")
           fi
           echo "📦 Menggunakan Package Name: $PKG_NAME"
 
+          # 4. PAKSA GUNAKAN JAVA (Hapus Kotlin agar tidak bentrok)
           PKG_PATH=$(echo $PKG_NAME | tr '.' '/')
           mkdir -p "android/app/src/main/java/$PKG_PATH"
-          
-          # 1. Hapus semua file MainActivity.kt agar tidak bentrok
           find android/app/src/main/kotlin -name "MainActivity.kt" -exec rm -f {} + 2>/dev/null || true
           
-          # 2. Buat file MainActivity.java yang baru dan bersih
           cat > "android/app/src/main/java/$PKG_PATH/MainActivity.java" << EOF
           package $PKG_NAME;
 
@@ -135,13 +144,10 @@ jobs:
           public class MainActivity extends FlutterActivity {
           }
           EOF
-          echo "✅ MainActivity.java berhasil dibuat/ditimpa."
-
-          # 3. Hapus folder lama yang menyesatkan
           find android/app/src/main/kotlin -type d -empty -delete 2>/dev/null || true
           find android/app/src/main/java -type d -empty -delete 2>/dev/null || true
 
-          # 4. Fix settings.gradle.kts (Naikkan AGP ke 8.9.1)
+          # 5. Fix settings.gradle.kts (AGP 8.9.1)
           cat > android/settings.gradle.kts << 'EOF'
           pluginManagement {
               val flutterSdkPath = run {
@@ -166,7 +172,7 @@ jobs:
           include(":app")
           EOF
 
-          # 5. Fix root build.gradle.kts
+          # 6. Fix root build.gradle.kts
           cat > android/build.gradle.kts << 'EOF'
           allprojects {
               repositories {
@@ -189,7 +195,7 @@ jobs:
           }
           EOF
 
-          # 6. Fix app/build.gradle.kts (Naikkan compileSdk & targetSdk ke 36)
+          # 7. Fix app/build.gradle.kts (KUNCI UTAMA BISA INSTALL)
           cat > android/app/build.gradle.kts << EOF
           plugins {
               id("com.android.application")
@@ -200,22 +206,31 @@ jobs:
               namespace = "$PKG_NAME"
               compileSdk = 36
               ndkVersion = flutter.ndkVersion
+              
               compileOptions {
                   sourceCompatibility = JavaVersion.VERSION_17
                   targetCompatibility = JavaVersion.VERSION_17
               }
+              
               defaultConfig {
                   applicationId = "$PKG_NAME"
-                  minSdk = 23
-                  targetSdk = 36
+                  minSdk = 24
+                  targetSdk = 34 // DIKUNCI KE 34 AGAR ANDROID MENOLAK INSTALASI
                   versionCode = 1
-                  versionName = "5.2.0"
+                  versionName = "1.0.0"
               }
+              
               buildTypes {
                   release {
                       isMinifyEnabled = false
                       isShrinkResources = false
                       signingConfig = signingConfigs.getByName("debug")
+                  }
+              }
+              
+              packagingOptions {
+                  jniLibs {
+                      useLegacyPackaging = true // WAJIB: Mencegah App Not Installed karena .so gagal ekstrak
                   }
               }
           }
